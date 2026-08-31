@@ -152,8 +152,7 @@ The plugin never touches any other configuration.
 - Everything the API returns is rendered as plain text.
 - Screenshots are captured under the private `$XDG_RUNTIME_DIR/gorelo`
   directory (mode `0700`) and removed after upload, failure, removal or discard.
-- `config.json` (in `~/.config/omarchy/gorelo/`, or the checkout when
-  symlinked) holds non-secret settings only and is git-ignored.
+- `config.json` in `~/.config/omarchy/gorelo/` holds non-secret settings only.
 
 ## Tests
 

@@ -128,6 +128,10 @@ QtObject {
         pending.key = ""
       } else if (!credentials.busy) {
         credentials.lookup(root.region)
+      } else {
+        // A keyring operation for the old region is still running; its
+        // result is ignored (region mismatch), so look up once it ends.
+        root.pendingLookupRegion = root.region
       }
     } else if (filterChanged && root.connected) {
       root.mineIndex = Object.create(null)
@@ -160,6 +164,14 @@ QtObject {
   readonly property bool hasKey: apiKey !== ""
   readonly property bool credentialBusy: credentials.busy
   property var pendingConnection: null
+  property string pendingLookupRegion: ""
+
+  onCredentialBusyChanged: {
+    if (root.credentialBusy || !root.pendingLookupRegion) return
+    var region = root.pendingLookupRegion
+    root.pendingLookupRegion = ""
+    if (region === root.region && !root.hasKey) credentials.lookup(region)
+  }
 
   property CredentialManager credentials: CredentialManager {
     onKeyReady: function(key, region) {
@@ -1029,10 +1041,13 @@ QtObject {
       captureDeadline.stop()
       var path = exitCode === 0 ? root.capturePath : ""
       root.capturePath = ""
-      if (path && root.captureRevision === root.draftRevision) root.updateDraft({ attachmentPath: path })
+      var current = root.captureRevision === root.draftRevision
+      if (path && current) root.updateDraft({ attachmentPath: path })
       else if (path) root.deleteAttachment(path)
       root.captureRevision = -1
-      root.summonNewTicket()
+      // The draft was discarded or sent while the region picker was open;
+      // reopening an empty form would only be confusing.
+      if (current) root.summonNewTicket()
     }
   }
 

@@ -362,8 +362,9 @@ Item {
                   // service re-summons it with the path in the draft.
                   onClicked: {
                     if (!root.service) return
-                    root.dismiss()
-                    root.service.captureScreenshot()
+                    // Stay open if a previous capture is still winding down,
+                    // otherwise nothing would bring the overlay back.
+                    if (root.service.captureScreenshot()) root.dismiss()
                   }
                 }
 
