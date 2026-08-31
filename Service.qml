@@ -34,7 +34,6 @@ QtObject {
   property int defaultStatusId: 0
   property int defaultGroupId: 0
   property int defaultTypeId: 0
-  property int defaultClientId: 0
   property string ticketUrlTemplate: ConfigStore.DEFAULT_TICKET_URL
   property string deviceUrlTemplate: ConfigStore.DEFAULT_DEVICE_URL
   property string activeTab: "mine"
@@ -76,7 +75,6 @@ QtObject {
       defaultStatusId: root.defaultStatusId,
       defaultGroupId: root.defaultGroupId,
       defaultTypeId: root.defaultTypeId,
-      defaultClientId: root.defaultClientId,
       ticketUrlTemplate: root.ticketUrlTemplate,
       deviceUrlTemplate: root.deviceUrlTemplate,
       activeTab: root.activeTab,
@@ -102,6 +100,7 @@ QtObject {
     var filterChanged = JSON.stringify(root.statusIds) !== JSON.stringify(c.statusIds)
       || root.technicianId !== c.technicianId
     var tabChanged = root.activeTab !== c.activeTab
+    var browserChanged = root.browserDesktop !== c.browserDesktop
 
     root.region = c.region
     root.demoMode = c.demoMode
@@ -114,12 +113,12 @@ QtObject {
     root.defaultStatusId = c.defaultStatusId
     root.defaultGroupId = c.defaultGroupId
     root.defaultTypeId = c.defaultTypeId
-    root.defaultClientId = c.defaultClientId
     root.ticketUrlTemplate = c.ticketUrlTemplate
     root.deviceUrlTemplate = c.deviceUrlTemplate
     root.activeTab = c.activeTab
     root.openAfterCreate = c.openAfterCreate
     root.browserDesktop = c.browserDesktop
+    if (browserChanged) root.browserWarning = ""
 
     var first = !root.configLoaded
     root.configLoaded = true
@@ -159,6 +158,7 @@ QtObject {
       if (!root.polling) root.poll()
     } else if (tabChanged) {
       root.rebuildRows()
+      if (root.connected && root.activeTab === "all") root.poll()
     }
   }
 
@@ -172,6 +172,7 @@ QtObject {
     }
     root.activeTab = next
     root.rebuildRows()
+    if (root.connected && next === "all") root.poll()
     tabSaveDebounce.restart()
   }
 
@@ -268,7 +269,7 @@ QtObject {
       root.pendingConnection = trimmed ? { region: region, key: trimmed } : null
       root.saveConfig({ region: region, technicianId: 0, technicianName: "",
                         statusIds: [], defaultStatusId: 0, defaultGroupId: 0,
-                        defaultTypeId: 0, defaultClientId: 0 })
+                        defaultTypeId: 0 })
     }
     if (trimmed) {
       root.phase = "connecting"
@@ -332,9 +333,9 @@ QtObject {
   property var groups: []
   property var users: []
   property var clients: []
-  property var statusNames: ({})
-  property var clientNames: ({})
-  property var userNames: ({})
+  property var statusNames: Object.create(null)
+  property var clientNames: Object.create(null)
+  property var userNames: Object.create(null)
   property bool referenceLoaded: false
 
   property var devices: []
@@ -359,7 +360,7 @@ QtObject {
   property string searchPendingQuery: ""
   property int searchPendingCount: 0
   property var searchRequests: []
-  property var mineIndex: ({})
+  property var mineIndex: Object.create(null)
   property bool firstPollDone: false
   property bool polling: false
   property bool pollRequested: false
@@ -533,6 +534,11 @@ QtObject {
              code: "", data: null, pagination: null }
   }
 
+  function protocolError(message) {
+    return { ok: false, status: 0, kind: "protocol", error: message,
+             code: "", data: null, pagination: null }
+  }
+
   // The only generation bump. It also releases every owner-side busy flag,
   // so dropped callbacks can never wedge polling, actions or ticket creation.
   function supersedeRequests() {
@@ -590,6 +596,11 @@ QtObject {
     }
     xhr.onreadystatechange = function() {
       if (xhr.readyState !== XMLHttpRequest.DONE) return
+      var responseUrl = String(xhr.responseURL || "")
+      if (responseUrl && responseUrl.indexOf(Api.baseUrl(root.region)) !== 0) {
+        complete(root.protocolError("Unexpected redirect"))
+        return
+      }
       complete(Api.parseResponse(xhr.status, xhr.responseText))
     }
     var list = root.inflight.slice()
@@ -781,6 +792,7 @@ QtObject {
     var gen = root.generation
     var serial = root.pollSerial
     var technician = root.effectiveTechnicianId
+    var fetchAllThisPoll = root.activeTab === "all"
     var statusFilter = root.effectiveStatusIds.slice()
     var mineParams = {
       PageSize: 100, SortBy: "updatedOn", SortOrder: "desc",
@@ -814,7 +826,9 @@ QtObject {
 
       if (root.notify && technician) {
         var events = Model.diffForNotifications(root.mineIndex, mine, root.notifyMinPriority, root.firstPollDone)
-        for (var i = 0; i < events.length; i++) root.sendNotification(events[i])
+        var notificationBatch = Model.summarizeNotificationEvents(events, 5)
+        if (notificationBatch.summary) root.sendNotificationSummary(notificationBatch.summary)
+        else for (var i = 0; i < notificationBatch.events.length; i++) root.sendNotification(notificationBatch.events[i])
       }
       root.mineIndex = Model.indexOf(mine)
       root.firstPollDone = true
@@ -841,6 +855,10 @@ QtObject {
 
     function fetchAll(mine, mineWasTruncated) {
       if (stale()) { finishStalePoll(); return }
+      if (!fetchAllThisPoll || root.activeTab !== "all") {
+        finishPoll(mine, root.allTickets, mineWasTruncated, root.allTruncated)
+        return
+      }
       root.requestAll("/v1/tickets", allParams, 5, function(all, err, allWasTruncated) {
         if (err) { pollFailed(err); return }
         finishPoll(mine, Api.validTicketList(all), mineWasTruncated, allWasTruncated)
@@ -865,13 +883,13 @@ QtObject {
         }
       }
       root.demoPollCount++
-      var demoAll = []
+      var demoAll = fetchAllThisPoll ? [] : root.allTickets
       var demoMine = []
       for (var m = 0; m < root.demoTicketStore.length; m++) {
         var demoTicket = root.demoTicketStore[m]
         var statusId = demoTicket.Status && demoTicket.Status.Id
         if (statusFilter.indexOf(statusId) === -1) continue
-        demoAll.push(demoTicket)
+        if (fetchAllThisPoll) demoAll.push(demoTicket)
         if (demoTicket.LeadAssigneeId === technician) demoMine.push(demoTicket)
       }
       finishPoll(demoMine, demoAll, false, false)
@@ -1067,7 +1085,7 @@ QtObject {
       ? root.searchResults
       : (root.activeTab === "all" ? root.allTickets : root.mineTickets)
     var ctx = root.rowContext()
-    var filtered = Model.filterTickets(source, ctx, root.searchQuery)
+    var filtered = root.searchActive ? source.slice() : Model.filterTickets(source, ctx, root.searchQuery)
     var list = Model.buildRows(filtered, ctx, root.urlFor)
     root.rows.clear()
     for (var i = 0; i < list.length; i++) root.rows.append(list[i])
@@ -1124,15 +1142,23 @@ QtObject {
     var priority = Model.priorityIdOf(ticket)
     var args = ["omarchy-notification-send", "--app-name", "Gorelo", "-g", Model.BRAND_ICON,
                 "-u", priority === 1 ? "critical" : "normal",
-                "-r", "gorelo-" + String(ticket.Id),
-                text.headline, text.body]
+                "-r", String(Model.notificationTag(ticket.Id)),
+                Model.escapeMarkup(text.headline), Model.escapeMarkup(text.body)]
     if (url && !root.demoMode) args = args.concat(["--exec"].concat(root.openUrlCommand(url)))
     Quickshell.execDetached(args)
   }
 
+  function sendNotificationSummary(summary) {
+    Quickshell.execDetached(["omarchy-notification-send", "--app-name", "Gorelo",
+                             "-g", Model.BRAND_ICON,
+                             "-r", String(Model.notificationTag("notification-summary")),
+                             "Gorelo", Model.escapeMarkup(summary)])
+  }
+
   function toast(headline, body) {
     Quickshell.execDetached(["omarchy-notification-send", "--app-name", "Gorelo",
-                             "-g", Model.BRAND_ICON, "-t", "4000", headline, body || ""])
+                             "-g", Model.BRAND_ICON, "-t", "4000",
+                             Model.escapeMarkup(headline), Model.escapeMarkup(body || "")])
   }
 
   // ------------------------------------------------------------ actions
@@ -1146,6 +1172,7 @@ QtObject {
   // Installed browsers, from .desktop entries in the WebBrowser category:
   // [{ path, name }]. Refreshed at startup and whenever settings open.
   property var browsers: []
+  property string browserWarning: ""
 
   property Process browserScanProcess: Process {
     command: ["bash", "-c", "for d in /usr/share/applications \"$HOME/.local/share/applications\" /var/lib/flatpak/exports/share/applications \"$HOME/.local/share/flatpak/exports/share/applications\"; do [ -d \"$d\" ] || continue; grep -lsE '^Categories=.*WebBrowser' \"$d\"/*.desktop; done 2>/dev/null | while read -r f; do printf '%s\\t%s\\n' \"$f\" \"$(grep -m1 '^Name=' \"$f\" | cut -d= -f2-)\"; done"]
@@ -1174,9 +1201,25 @@ QtObject {
     if (!browserScanProcess.running) browserScanProcess.running = true
   }
 
+  function availableBrowserDesktop() {
+    if (!root.browserDesktop) {
+      root.browserWarning = ""
+      return ""
+    }
+    for (var i = 0; i < root.browsers.length; i++) {
+      if (root.browsers[i].path === root.browserDesktop) {
+        root.browserWarning = ""
+        return root.browserDesktop
+      }
+    }
+    root.browserWarning = "The selected browser is no longer available; using the system default."
+    return ""
+  }
+
   // argv that opens a URL in the chosen browser, or the system default.
   function openUrlCommand(url) {
-    if (root.browserDesktop) return ["gio", "launch", root.browserDesktop, url]
+    var desktop = root.availableBrowserDesktop()
+    if (desktop) return ["gio", "launch", desktop, url]
     return ["xdg-open", url]
   }
 
@@ -1186,7 +1229,8 @@ QtObject {
       root.toast("Demo mode", "Would open " + url)
       return true
     }
-    if (root.browserDesktop) Quickshell.execDetached(root.openUrlCommand(url))
+    var desktop = root.availableBrowserDesktop()
+    if (desktop) Quickshell.execDetached(["gio", "launch", desktop, url])
     else Qt.openUrlExternally(url)
     return true
   }
@@ -1565,14 +1609,20 @@ QtObject {
   // Region select → save → the overlay re-summons itself with the path in
   // the draft. The overlay dismisses first so it is not in the shot.
   property string capturePath: ""
-  readonly property string screenshotDir: Quickshell.env("XDG_RUNTIME_DIR") + "/gorelo"
+  readonly property string runtimeDir: String(Quickshell.env("XDG_RUNTIME_DIR") || "")
+  readonly property string screenshotDir: runtimeDir ? runtimeDir + "/gorelo" : ""
   property int captureRevision: -1
   property bool capturePending: false
   property var deleteQueue: []
 
   function deleteAttachment(path) {
     var target = String(path || "")
-    if (!target || target.indexOf(root.screenshotDir + "/") !== 0) return
+    if (!root.screenshotDir) return
+    var prefix = root.screenshotDir + "/"
+    if (!target || target.indexOf(prefix) !== 0) return
+    var basename = target.slice(prefix.length)
+    if (!basename || basename.indexOf("/") !== -1 || basename.indexOf("..") !== -1
+        || basename.indexOf("screenshot-") !== 0) return
     var queue = root.deleteQueue.slice()
     queue.push(target)
     root.deleteQueue = queue
@@ -1667,6 +1717,10 @@ QtObject {
 
   function captureScreenshot() {
     if (root.capturing || root.capturePending || captureDirProcess.running || captureProcess.running) return false
+    if (!root.screenshotDir) {
+      root.createError = "No private runtime directory (XDG_RUNTIME_DIR) — screenshots disabled."
+      return false
+    }
     root.capturing = true
     root.capturePending = true
     root.captureRevision = root.draftRevision

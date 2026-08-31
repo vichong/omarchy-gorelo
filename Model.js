@@ -308,6 +308,35 @@ function notificationText(event) {
   return { headline: headline, body: body }
 }
 
+// Omarchy's notification replacement id must be a positive decimal uint32.
+// djb2 gives each ticket a stable id without exposing the ticket id itself.
+function notificationTag(ticketId) {
+  var text = String(ticketId === undefined || ticketId === null ? "" : ticketId)
+  var hash = 5381
+  for (var i = 0; i < text.length; i++) {
+    hash = (((hash << 5) + hash) + text.charCodeAt(i)) >>> 0
+  }
+  return hash || 1
+}
+
+// Notification bodies are StyledText in Omarchy even though the panel uses
+// PlainText, so server-controlled text must be markup-escaped separately.
+function escapeMarkup(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+}
+
+function summarizeNotificationEvents(events, cap) {
+  var list = Array.isArray(events) ? events : []
+  var limit = Number.isInteger(cap) ? Math.max(0, cap) : 5
+  if (list.length > limit) {
+    return { events: [], summary: list.length + " tickets assigned or updated" }
+  }
+  return { events: list.slice(), summary: "" }
+}
+
 function emptyDraft() {
   return { title: "", description: "", clientId: 0, priorityId: 3, attachmentPath: "" }
 }

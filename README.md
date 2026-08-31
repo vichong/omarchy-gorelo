@@ -87,7 +87,7 @@ o.bind("SUPER + SHIFT + G", "New Gorelo ticket", "omarchy-shell gorelo newTicket
   browser is chosen in Settings; the system default uses the desktop's
   URL handler)
 - A Gorelo API key: **Settings → Integrations → API keys**, with read/write on
-  tickets and read on clients, contacts and organization
+  tickets and read on clients, organization and assets
 
 ## Install
 
@@ -160,7 +160,7 @@ The plugin never touches any other configuration.
 
 - No webhooks or streaming; the plugin polls (90 s by default). Gorelo
   rate-limits bursts: polls back off (up to 10 min) and a connection that
-  fails on a rate limit or network error retries by itself (30 s, doubling
+  fails on a rate limit, network or server error retries by itself (30 s, doubling
   to 5 min).
 - A server search returns the 50 most recently updated matches. The device
   cache holds up to 2,000 computers and refreshes every 30 minutes; Enter
@@ -196,6 +196,11 @@ The plugin never touches any other configuration.
   memory by the shell. It is never written to `config.json`, logs, IPC output
   or process arguments — the screenshot upload hands it to `curl` through a
   config file on stdin.
+- Because the key is held in the shell's memory, it would be present in a core
+  dump of the shell process.
+- Qt's `XMLHttpRequest` follows redirects with headers. The plugin rejects a
+  completed response redirected away from the configured Gorelo API base, but
+  a compromised API edge could still redirect the key before that check runs.
 - Everything the API returns is rendered as plain text.
 - Screenshots are captured under the private `$XDG_RUNTIME_DIR/gorelo`
   directory (mode `0700`) and removed after upload, failure, removal or discard.

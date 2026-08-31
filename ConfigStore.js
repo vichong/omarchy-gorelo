@@ -8,7 +8,7 @@ var REGIONS = ["usw", "aue"]
 var KEYS = [
   "region", "demoMode", "technicianId", "technicianName", "pollSeconds", "notify",
   "notifyMinPriority", "statusIds", "defaultStatusId", "defaultGroupId",
-  "defaultTypeId", "defaultClientId", "ticketUrlTemplate", "deviceUrlTemplate", "activeTab",
+  "defaultTypeId", "ticketUrlTemplate", "deviceUrlTemplate", "activeTab",
   "openAfterCreate", "browserDesktop"
 ]
 
@@ -36,6 +36,12 @@ function intList(value) {
 function clampPoll(value) {
   var n = intOr(value, 90)
   return Math.max(30, Math.min(900, n))
+}
+
+function httpsTemplate(value, fallback) {
+  if (typeof value !== "string") return fallback
+  var trimmed = value.trim()
+  return trimmed.indexOf("https://") === 0 ? trimmed : fallback
 }
 
 function parse(text) {
@@ -68,11 +74,8 @@ function parse(text) {
       defaultStatusId: Math.max(0, intOr(raw.defaultStatusId, 0)),
       defaultGroupId: Math.max(0, intOr(raw.defaultGroupId, 0)),
       defaultTypeId: Math.max(0, intOr(raw.defaultTypeId, 0)),
-      defaultClientId: Math.max(0, intOr(raw.defaultClientId, 0)),
-      ticketUrlTemplate: typeof raw.ticketUrlTemplate === "string" && raw.ticketUrlTemplate.trim()
-        ? raw.ticketUrlTemplate.trim() : DEFAULT_TICKET_URL,
-      deviceUrlTemplate: typeof raw.deviceUrlTemplate === "string" && raw.deviceUrlTemplate.trim()
-        ? raw.deviceUrlTemplate.trim() : DEFAULT_DEVICE_URL,
+      ticketUrlTemplate: httpsTemplate(raw.ticketUrlTemplate, DEFAULT_TICKET_URL),
+      deviceUrlTemplate: httpsTemplate(raw.deviceUrlTemplate, DEFAULT_DEVICE_URL),
       activeTab: raw.activeTab === "all" ? "all" : "mine",
       openAfterCreate: raw.openAfterCreate !== false,
       // Absolute path of a browser .desktop entry; empty means the system default.

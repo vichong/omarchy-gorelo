@@ -22,6 +22,7 @@ equal(parsed.config.ticketUrlTemplate, ConfigStore.DEFAULT_TICKET_URL, "blank te
 equal(parsed.config.deviceUrlTemplate, ConfigStore.DEFAULT_DEVICE_URL, "device template defaults")
 equal(parsed.config.activeTab, "all", "tab")
 assert(!("apiKey" in parsed.config), "unknown keys (including a stray apiKey) are dropped")
+assert(!("defaultClientId" in parsed.config), "dead default client key is dropped")
 
 const merged = ConfigStore.merge(parsed.config, { pollSeconds: 120, apiKey: "leak" })
 equal(merged.pollSeconds, 120, "merge applies known keys")
@@ -35,5 +36,11 @@ equal(ConfigStore.parse(JSON.stringify({ browserDesktop: "/tmp/x.desktop\nrm" })
 equal(empty.config.browserDesktop, "", "browser defaults to system default")
 equal(ConfigStore.parse(JSON.stringify({ deviceUrlTemplate: " https://x/{id}/{name} " })).config.deviceUrlTemplate,
   "https://x/{id}/{name}", "device template is trimmed")
+equal(ConfigStore.parse(JSON.stringify({ ticketUrlTemplate: "http://x/{id}" })).config.ticketUrlTemplate,
+  ConfigStore.DEFAULT_TICKET_URL, "insecure ticket template falls back")
+equal(ConfigStore.parse(JSON.stringify({ deviceUrlTemplate: "javascript:alert(1)" })).config.deviceUrlTemplate,
+  ConfigStore.DEFAULT_DEVICE_URL, "non-HTTPS device template falls back")
+equal(ConfigStore.parse(JSON.stringify({ ticketUrlTemplate: "HTTPS://x/{id}" })).config.ticketUrlTemplate,
+  ConfigStore.DEFAULT_TICKET_URL, "template must start with lowercase https scheme")
 
 done("test_config")

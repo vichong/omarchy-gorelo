@@ -94,6 +94,16 @@ equal(Model.diffForNotifications(previous, [tickets[2]], 1, true), [], "normal t
 
 const text = Model.notificationText({ kind: "updated", ticket: { DisplayNumber: "T-1", Title: "Printer", LastUpdate: { Summary: "Replied" } } })
 equal(text, { headline: "Updated: T-1", body: "Printer — Replied" }, "notification text")
+const tag = Model.notificationTag("ticket-123")
+assert(Number.isInteger(tag) && tag > 0 && tag <= 0xffffffff, "notification tag is a positive uint32")
+equal(Model.notificationTag("ticket-123"), tag, "notification tag is stable")
+assert(Model.notificationTag("ticket-124") !== tag, "different ticket ids get different notification tags")
+equal(Model.escapeMarkup("AT&T <urgent> > normal"), "AT&amp;T &lt;urgent&gt; &gt; normal", "notification markup is escaped")
+const fiveEvents = [1, 2, 3, 4, 5]
+equal(Model.summarizeNotificationEvents(fiveEvents, 5), { events: fiveEvents, summary: "" }, "notification cap allows individual events")
+equal(Model.summarizeNotificationEvents(fiveEvents.concat(6), 5),
+  { events: [], summary: "6 tickets assigned or updated" }, "events above the cap become one summary")
+equal(Model.summarizeNotificationEvents(null, 5), { events: [], summary: "" }, "invalid notification events are empty")
 
 equal(Model.validateDraft({ title: " ", clientId: 1 }, { statusId: 1, groupId: 1, typeId: 1 }), "A title is required.", "draft needs title")
 equal(Model.validateDraft({ title: "x", clientId: 0 }, { statusId: 1, groupId: 1, typeId: 1 }), "Pick a client.", "draft needs client")

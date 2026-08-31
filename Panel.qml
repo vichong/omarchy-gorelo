@@ -159,8 +159,14 @@ Panel {
     var base = bar ? bar.barForeground : Color.foreground
     if (root.phase === "error") return bar ? bar.urgent : Color.urgent
     if (!root.connected) return Qt.darker(base, 1.5)
+    if (root.iconCarriesAttention) {
+      return root.counts.urgent > 0 ? (bar ? bar.urgent : Color.urgent) : Color.accent
+    }
     return base
   }
+  readonly property bool iconCarriesAttention: root.connected
+    && (!root.showCount || button.vertical)
+    && (root.counts.urgent > 0 || root.counts.unread > 0)
   readonly property bool attention: root.connected && (root.counts.urgent > 0 || root.counts.unread > 0)
 
   readonly property string heroMeta: {
@@ -239,7 +245,7 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
         iconSize: Style.bar.iconCanvas
         color: root.iconColor
-        colorful: root.colorful
+        colorful: root.colorful && !root.iconCarriesAttention
       }
 
       Text {
@@ -360,7 +366,7 @@ Panel {
           fontSize: Style.font.caption
           options: [
             { value: "mine", label: "Mine" + (root.counts.total ? " · " + root.counts.total : "") },
-            { value: "all", label: "All open" + (root.allCounts.total ? " · " + root.allCounts.total : "") }
+            { value: "all", label: "All open" + (root.tab === "all" && root.allCounts.total ? " · " + root.allCounts.total : "") }
           ]
           value: root.tab
           onChanged: function(value) {

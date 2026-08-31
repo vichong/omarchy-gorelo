@@ -602,7 +602,7 @@ Item {
 
               Caption {
                 width: settingsColumn.width
-                text: "Give the key read/write on tickets and read on clients, contacts and organization. It is kept in the system keyring, never in a config file."
+                text: "Give the key read/write on tickets and read on clients, organization and assets. It is kept in the system keyring, never in a config file."
               }
             }
 
@@ -869,6 +869,13 @@ Item {
             Caption {
               width: settingsColumn.width
               text: "Browsers found in the applications menu. Also used for device links, notification clicks and newly created tickets."
+            }
+
+            Caption {
+              width: settingsColumn.width
+              visible: root.service && root.service.browserWarning !== ""
+              text: root.service ? root.service.browserWarning : ""
+              color: Color.urgent
             }
 
             Column {

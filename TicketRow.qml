@@ -5,7 +5,7 @@ import "Api.js" as Api
 import "Model.js" as Model
 
 // One ticket in the queue. Click or Enter opens it in the browser; the
-// chevron (or `e`) unfolds status, assignment and a private-note field.
+// chevron unfolds status, assignment and a private-note field.
 CursorSurface {
   id: row
 
