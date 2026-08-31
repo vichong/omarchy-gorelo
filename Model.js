@@ -184,6 +184,45 @@ function filterDevices(devices, ctx, query, limit) {
   return out.slice(0, cap)
 }
 
+function mergeDevices(base, additions) {
+  var out = []
+  var positions = Object.create(null)
+  function add(device) {
+    if (!device || typeof device !== "object" || device.Id === undefined || device.Id === null) return
+    var id = String(device.Id)
+    if (positions[id] !== undefined) out[positions[id]] = device
+    else {
+      positions[id] = out.length
+      out.push(device)
+    }
+  }
+  var first = Array.isArray(base) ? base : []
+  var second = Array.isArray(additions) ? additions : []
+  for (var i = 0; i < first.length; i++) add(first[i])
+  for (var j = 0; j < second.length; j++) add(second[j])
+  return out
+}
+
+// Direct-query results are newest first. A repeated hit moves forward and
+// replaces its older value, keeping the list bounded independently of cache.
+function updateDeviceHits(current, additions, limit) {
+  var out = []
+  var seen = Object.create(null)
+  var cap = Number.isInteger(limit) ? Math.max(0, limit) : 200
+  function add(device) {
+    if (!device || typeof device !== "object" || device.Id === undefined || device.Id === null) return
+    var id = String(device.Id)
+    if (seen[id]) return
+    seen[id] = true
+    out.push(device)
+  }
+  var newest = Array.isArray(additions) ? additions : []
+  var older = Array.isArray(current) ? current : []
+  for (var i = 0; i < newest.length && out.length < cap; i++) add(newest[i])
+  for (var j = 0; j < older.length && out.length < cap; j++) add(older[j])
+  return out
+}
+
 function projectDeviceRow(device, ctx, urlFn) {
   ctx = ctx || {}
   var online = deviceOnline(device)

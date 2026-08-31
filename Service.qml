@@ -308,6 +308,9 @@ QtObject {
   property string devicesError: ""
   property bool devicesTruncated: false
   property int deviceLoadSerial: 0
+  property var deviceHits: []
+  property bool deviceSearching: false
+  property string deviceSearchError: ""
   property ListModel deviceRows: ListModel {}
 
   property var mineTickets: []
@@ -318,6 +321,9 @@ QtObject {
   property var searchResults: []
   property string searchError: ""
   property int searchSerial: 0
+  property string searchPendingQuery: ""
+  property int searchPendingCount: 0
+  property var searchRequests: []
   property var mineIndex: ({})
   property bool firstPollDone: false
   property bool polling: false
@@ -329,6 +335,7 @@ QtObject {
   property string lastPolledAt: ""
   property int pollBackoff: 0
   property int ticketRevision: 0
+  property int rowsRevision: 0
   property ListModel rows: ListModel {}
 
   readonly property var effectiveStatusIds: statusIds.length ? statusIds : Api.defaultStatusIds(statuses)
@@ -363,6 +370,9 @@ QtObject {
     root.devicesError = ""
     root.devicesTruncated = false
     root.deviceLoadSerial++
+    root.deviceHits = []
+    root.deviceSearching = false
+    root.deviceSearchError = ""
     root.mineTickets = []
     root.allTickets = []
     root.searchQuery = ""
@@ -371,6 +381,9 @@ QtObject {
     root.searchResults = []
     root.searchError = ""
     root.searchSerial++
+    root.searchPendingQuery = ""
+    root.searchPendingCount = 0
+    root.searchRequests = []
     root.mineIndex = Object.create(null)
     root.firstPollDone = false
     root.polling = false
@@ -380,6 +393,7 @@ QtObject {
     root.pollBackoff = 0
     root.rows.clear()
     root.deviceRows.clear()
+    root.rowsRevision++
     root.ticketRevision++
   }
 
@@ -436,9 +450,7 @@ QtObject {
     var requests = root.inflight.slice()
     for (var i = 0; i < requests.length; i++) {
       var entry = requests[i]
-      entry.superseded = true
-      entry.complete(root.networkError("Request superseded."))
-      try { entry.xhr.abort() } catch (e) {}
+      entry.abort()
     }
     root.inflight = []
     root.polling = false
@@ -446,6 +458,10 @@ QtObject {
     root.pendingActions = 0
     root.creating = false
     root.searching = false
+    root.deviceSearching = false
+    root.searchPendingQuery = ""
+    root.searchPendingCount = 0
+    root.searchRequests = []
     root.devicesLoading = false
     root.cancelUpload()
     root.generation++
@@ -462,7 +478,8 @@ QtObject {
     var gen = root.generation
     var xhr = new XMLHttpRequest()
     var url = Api.baseUrl(root.region) + path
-    var entry = { xhr: xhr, started: Date.now(), done: false, superseded: false, complete: null }
+    var entry = { xhr: xhr, started: Date.now(), done: false, superseded: false,
+                  complete: null, abort: null }
     function complete(result) {
       if (entry.done) return
       entry.done = true
@@ -471,6 +488,12 @@ QtObject {
       callback(result)
     }
     entry.complete = complete
+    entry.abort = function() {
+      if (entry.done) return
+      entry.superseded = true
+      entry.complete(root.networkError("Request superseded."))
+      try { xhr.abort() } catch (e) {}
+    }
     xhr.onreadystatechange = function() {
       if (xhr.readyState !== XMLHttpRequest.DONE) return
       complete(Api.parseResponse(xhr.status, xhr.responseText))
@@ -491,6 +514,7 @@ QtObject {
     } catch (e) {
       complete(root.networkError("Could not start the Gorelo API request."))
     }
+    return entry
   }
 
   // Follow cursor pagination up to maxPages pages, then
@@ -744,23 +768,8 @@ QtObject {
     return Api.deviceUrl(root.deviceUrlTemplate, device)
   }
 
-  function mergeDevices(base, additions) {
-    var out = []
-    var positions = Object.create(null)
-    function add(device) {
-      if (!device || typeof device !== "object" || device.Id === undefined || device.Id === null) return
-      var id = String(device.Id)
-      if (positions[id] !== undefined) out[positions[id]] = device
-      else {
-        positions[id] = out.length
-        out.push(device)
-      }
-    }
-    var first = Array.isArray(base) ? base : []
-    var second = Array.isArray(additions) ? additions : []
-    for (var i = 0; i < first.length; i++) add(first[i])
-    for (var j = 0; j < second.length; j++) add(second[j])
-    return out
+  function allDevices() {
+    return Model.mergeDevices(root.devices, root.deviceHits)
   }
 
   function loadDevices() {
@@ -777,10 +786,10 @@ QtObject {
         root.rebuildRows()
         return
       }
-      // Keep any exact-query hits that landed while the capped cache loaded.
-      root.devices = root.mergeDevices(items.slice(0, 2000), root.devices)
+      // A refresh is a new bulk snapshot. Direct-query hits live separately.
+      root.devices = items.slice(0, 2000)
       root.devicesLoaded = true
-      root.devicesTruncated = truncated || items.length >= 2000
+      root.devicesTruncated = truncated || items.length > 2000
       root.devicesError = ""
       root.rebuildRows()
     })
@@ -793,18 +802,21 @@ QtObject {
   }
 
   function leaveSearch() {
+    root.abortSearchRequests()
     root.searchSerial++
     root.searchActive = false
     root.searching = false
+    root.deviceSearching = false
     root.searchResults = []
     root.searchError = ""
+    root.deviceSearchError = ""
   }
 
   function setSearchQuery(text) {
     var next = String(text || "")
     if (next === root.searchQuery) return
     root.searchQuery = next
-    root.devicesError = ""
+    root.deviceSearchError = ""
     // Editing the text always returns to filtering the loaded queue; a
     // server result set only ever belongs to the exact text that ran it.
     root.leaveSearch()
@@ -820,19 +832,25 @@ QtObject {
   function runSearch() {
     var query = root.searchQuery.trim()
     if (!query || !root.connected) return false
+    if (root.searchPendingCount > 0 && root.searchPendingQuery === query) return false
+    root.abortSearchRequests()
     searchDebounce.stop()
     var gen = root.generation
     var serial = ++root.searchSerial
     root.searchActive = true
     root.searching = true
+    root.deviceSearching = true
     root.searchResults = []
     root.searchError = ""
-    root.devicesError = ""
+    root.deviceSearchError = ""
+    root.searchPendingQuery = query
+    root.searchPendingCount = 2
     root.rebuildRows()
     var params = { Query: query, PageSize: 50, SortBy: "updatedOn", SortOrder: "desc" }
-    root.request("GET", "/v1/tickets" + Api.query(params), null, function(result) {
+    var ticketRequest = root.request("GET", "/v1/tickets" + Api.query(params), null, function(result) {
       if (gen !== root.generation || serial !== root.searchSerial) return
       root.searching = false
+      root.finishSearchRequest(query, serial)
       if (!result.ok) {
         root.searchError = result.error
         root.searchResults = []
@@ -843,18 +861,41 @@ QtObject {
       root.rebuildRows()
     })
     var deviceParams = { Query: query, PageSize: 25 }
-    root.request("GET", "/v1/assets/agents" + Api.query(deviceParams), null, function(result) {
+    var deviceRequest = root.request("GET", "/v1/assets/agents" + Api.query(deviceParams), null, function(result) {
       if (gen !== root.generation || serial !== root.searchSerial) return
+      root.deviceSearching = false
+      root.finishSearchRequest(query, serial)
       if (!result.ok) {
-        root.devicesError = result.error
+        root.deviceSearchError = result.error
       } else {
-        root.devices = root.mergeDevices(root.devices, result.data)
-        root.devicesLoaded = true
-        root.devicesError = ""
+        root.deviceHits = Model.updateDeviceHits(root.deviceHits, result.data, 200)
+        root.deviceSearchError = ""
       }
       root.rebuildRows()
     })
+    root.searchRequests = [ticketRequest, deviceRequest]
     return true
+  }
+
+  function finishSearchRequest(query, serial) {
+    if (serial !== root.searchSerial || query !== root.searchPendingQuery) return
+    root.searchPendingCount = Math.max(0, root.searchPendingCount - 1)
+    if (root.searchPendingCount === 0) {
+      root.searchPendingQuery = ""
+      root.searchRequests = []
+    }
+  }
+
+  function abortSearchRequests() {
+    var requests = root.searchRequests.slice()
+    root.searchRequests = []
+    root.searchPendingQuery = ""
+    root.searchPendingCount = 0
+    for (var i = 0; i < requests.length; i++) {
+      if (requests[i] && typeof requests[i].abort === "function") requests[i].abort()
+    }
+    root.searching = false
+    root.deviceSearching = false
   }
 
   function clearSearch() {
@@ -875,12 +916,31 @@ QtObject {
     for (var i = 0; i < list.length; i++) root.rows.append(list[i])
     root.deviceRows.clear()
     var query = root.searchQuery.trim()
-    if (query && root.devicesLoaded) {
-      var matches = Model.filterDevices(root.devices, ctx, query, 8)
+    if (query) {
+      var matches = Model.filterDevices(root.allDevices(), ctx, query, 8)
       for (var j = 0; j < matches.length; j++) {
         root.deviceRows.append(Model.projectDeviceRow(matches[j], ctx, root.urlForDevice))
       }
     }
+    root.rowsRevision++
+  }
+
+  function indexOfTicket(ticketId) {
+    var id = String(ticketId || "")
+    if (!id) return -1
+    for (var i = 0; i < root.rows.count; i++) {
+      if (String(root.rows.get(i).ticketId) === id) return i
+    }
+    return -1
+  }
+
+  function indexOfDevice(deviceId) {
+    var id = String(deviceId || "")
+    if (!id) return -1
+    for (var i = 0; i < root.deviceRows.count; i++) {
+      if (String(root.deviceRows.get(i).deviceId) === id) return i
+    }
+    return -1
   }
 
   function ticketFor(ticketId) {
@@ -893,7 +953,8 @@ QtObject {
 
   function deviceFor(deviceId) {
     var id = String(deviceId)
-    for (var i = 0; i < root.devices.length; i++) if (String(root.devices[i].Id) === id) return root.devices[i]
+    var devices = root.allDevices()
+    for (var i = 0; i < devices.length; i++) if (String(devices[i].Id) === id) return devices[i]
     return null
   }
 

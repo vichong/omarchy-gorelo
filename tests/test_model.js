@@ -60,6 +60,11 @@ equal(Model.matchesDevice(devices[0], ctx, "ser-1"), true, "device serial matche
 equal(Model.matchesDevice(devices[1], ctx, "nope"), false, "unrelated device does not match")
 equal(Model.filterDevices(devices, ctx, "", 2).map(d => d.Id), ["d1", "d3"], "devices sort online first and respect limit")
 equal(Model.filterDevices(devices, ctx, "", 8).map(d => d.Id), ["d1", "d3", "d2"], "devices sort by display or host name")
+const refreshedDevice = Object.assign({}, devices[0], { DisplayName: "Ada's new laptop" })
+equal(Model.mergeDevices(devices, [refreshedDevice]).find(d => d.Id === "d1").DisplayName,
+  "Ada's new laptop", "device additions replace matching base records")
+equal(Model.updateDeviceHits([devices[0], devices[1]], [refreshedDevice, devices[2]], 2).map(d => d.Id),
+  ["d1", "d3"], "recent direct hits replace old values, move forward, and respect their cap")
 const deviceRow = Model.projectDeviceRow(devices[1], ctx, d => "https://x/" + d.Id)
 equal([deviceRow.deviceId, deviceRow.name, deviceRow.hostName, deviceRow.clientName], ["d2", "WS-BETA", "WS-BETA", "Globex"], "device identity projection")
 equal([deviceRow.online, deviceRow.statusName, deviceRow.lastUser, deviceRow.lastSeen], [false, "Disconnected", "bob@example.com", "1h"], "offline device projection")

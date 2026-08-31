@@ -28,17 +28,19 @@ Panel {
   property string expandedDeviceId: ""
   property int cursorIndex: 0
   property bool cursorActive: false
+  property string cursorTicketId: ""
+  property string cursorDeviceId: ""
+  property double lastSearchAcceptedAt: 0
 
   readonly property int rowCount: serviceReady ? gorelo.rows.count : 0
   readonly property int deviceRowCount: serviceReady ? gorelo.deviceRows.count : 0
   readonly property int totalRowCount: rowCount + deviceRowCount
+  readonly property int rowsRevision: serviceReady ? gorelo.rowsRevision : 0
   readonly property string tab: serviceReady ? gorelo.activeTab : "mine"
   readonly property var counts: serviceReady ? gorelo.mineCounts : ({ total: 0, unread: 0, urgent: 0, waiting: 0 })
   readonly property var allCounts: serviceReady ? gorelo.allCounts : ({ total: 0, unread: 0, urgent: 0, waiting: 0 })
 
-  onTotalRowCountChanged: {
-    cursorIndex = totalRowCount > 0 ? Math.max(0, Math.min(totalRowCount - 1, cursorIndex)) : 0
-  }
+  onRowsRevisionChanged: restoreRowsState()
 
   onOpenedChanged: if (!opened) {
     if (serviceReady) gorelo.clearSearch()
@@ -46,17 +48,73 @@ Panel {
     expandedDeviceId = ""
     cursorActive = false
     cursorIndex = 0
+    cursorTicketId = ""
+    cursorDeviceId = ""
+  }
+
+  onCursorActiveChanged: {
+    if (cursorActive) rememberCursor()
+    else {
+      cursorTicketId = ""
+      cursorDeviceId = ""
+    }
+  }
+
+  function rememberCursor() {
+    if (!cursorActive || !serviceReady || cursorIndex < 0 || cursorIndex >= totalRowCount) {
+      cursorTicketId = ""
+      cursorDeviceId = ""
+      return
+    }
+    if (cursorIndex < rowCount) {
+      cursorTicketId = String(gorelo.rows.get(cursorIndex).ticketId)
+      cursorDeviceId = ""
+    } else {
+      cursorTicketId = ""
+      cursorDeviceId = String(gorelo.deviceRows.get(cursorIndex - rowCount).deviceId)
+    }
+  }
+
+  function selectCursorIndex(nextIndex) {
+    cursorIndex = nextIndex
+    rememberCursor()
+  }
+
+  function restoreRowsState() {
+    if (!serviceReady) return
+    if (expandedTicketId && gorelo.indexOfTicket(expandedTicketId) === -1) expandedTicketId = ""
+    if (expandedDeviceId && gorelo.indexOfDevice(expandedDeviceId) === -1) expandedDeviceId = ""
+
+    var restored = -1
+    if (cursorActive && cursorTicketId) restored = gorelo.indexOfTicket(cursorTicketId)
+    else if (cursorActive && cursorDeviceId) {
+      var deviceIndex = gorelo.indexOfDevice(cursorDeviceId)
+      if (deviceIndex !== -1) restored = rowCount + deviceIndex
+    }
+    if (restored !== -1) cursorIndex = restored
+    else cursorIndex = totalRowCount > 0 ? Math.max(0, Math.min(totalRowCount - 1, cursorIndex)) : 0
+    rememberCursor()
+  }
+
+  function acceptSearch() {
+    if (!serviceReady) return
+    var now = Date.now()
+    if (now - lastSearchAcceptedAt < 300) return
+    lastSearchAcceptedAt = now
+    gorelo.runSearch()
   }
 
   function moveCursor(delta) {
     if (totalRowCount === 0 || delta === 0) return
-    cursorIndex = Math.max(0, Math.min(totalRowCount - 1, cursorIndex + delta))
+    selectCursorIndex(Math.max(0, Math.min(totalRowCount - 1, cursorIndex + delta)))
   }
 
   function switchTab(delta) {
     if (!serviceReady) return
     gorelo.setActiveTab(tab === "mine" ? "all" : "mine")
     cursorIndex = 0
+    cursorTicketId = ""
+    cursorDeviceId = ""
     expandedTicketId = ""
     expandedDeviceId = ""
   }
@@ -309,6 +367,8 @@ Panel {
             if (!root.serviceReady) return
             root.gorelo.setActiveTab(value)
             root.cursorIndex = 0
+            root.cursorTicketId = ""
+            root.cursorDeviceId = ""
             root.expandedTicketId = ""
             root.expandedDeviceId = ""
           }
@@ -328,7 +388,7 @@ Panel {
             font.family: root.family
             rightPadding: clearSearchButton.visible ? Style.space(36) : horizontalPadding
             onTextChanged: if (root.serviceReady) root.gorelo.setSearchQuery(text)
-            onAccepted: if (root.serviceReady) root.gorelo.runSearch()
+            onAccepted: root.acceptSearch()
 
             // Typing breaks a `text:` binding, so mirror the service's query by
             // hand: clearing (button, Escape, popup close) must empty the field.
@@ -465,8 +525,9 @@ Panel {
         Text {
           textFormat: Text.PlainText
           width: parent.width
-          visible: root.connected && root.gorelo.searchQuery.trim() !== "" && root.gorelo.devicesLoading
-          text: "Loading devices…"
+          visible: root.connected && root.gorelo.searchQuery.trim() !== ""
+            && (root.gorelo.devicesLoading || root.gorelo.deviceSearching)
+          text: root.gorelo.deviceSearching ? "Searching devices…" : "Loading devices…"
           color: root.dim
           font.family: root.family
           font.pixelSize: Style.font.caption
@@ -477,6 +538,18 @@ Panel {
           width: parent.width
           visible: root.connected && root.gorelo.searchQuery.trim() !== "" && root.gorelo.devicesError !== ""
           text: root.serviceReady ? root.gorelo.devicesError : ""
+          wrapMode: Text.WordWrap
+          color: Color.urgent
+          font.family: root.family
+          font.pixelSize: Style.font.caption
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          visible: root.connected && root.gorelo.searchQuery.trim() !== ""
+            && root.gorelo.deviceSearchError !== ""
+          text: root.serviceReady ? root.gorelo.deviceSearchError : ""
           wrapMode: Text.WordWrap
           color: Color.urgent
           font.family: root.family
@@ -497,7 +570,8 @@ Panel {
         PanelSectionHeader {
           width: parent.width
           visible: root.connected && !root.gorelo.needsTechnician
-            && root.gorelo.searchActive && !root.gorelo.searching && root.gorelo.searchError === ""
+            && root.gorelo.searchActive && !root.gorelo.searching && !root.gorelo.deviceSearching
+            && root.gorelo.searchError === ""
           text: root.rowCount > 0 ? "SEARCH RESULTS · " + root.rowCount : "No tickets match"
           foreground: root.fg
           fontFamily: root.family
@@ -508,7 +582,7 @@ Panel {
           width: parent.width
           visible: root.connected && !root.gorelo.needsTechnician && root.rowCount === 0
             && root.deviceRowCount === 0 && !root.gorelo.devicesLoading
-            && !root.gorelo.searchActive && !root.gorelo.searching
+            && !root.gorelo.deviceSearching && !root.gorelo.searchActive && !root.gorelo.searching
           text: root.gorelo && root.gorelo.firstPollDone
             ? (root.gorelo.searchQuery.trim()
               ? "No tickets or devices match."
@@ -574,7 +648,7 @@ Panel {
                 expanded: root.expandedTicketId === ticketId
                 onCursorRequested: {
                   root.cursorActive = true
-                  root.cursorIndex = index
+                  root.selectCursorIndex(index)
                 }
                 onExpandToggled: {
                   root.expandedDeviceId = ""
@@ -607,7 +681,7 @@ Panel {
                 expanded: root.expandedDeviceId === deviceId
                 onCursorRequested: {
                   root.cursorActive = true
-                  root.cursorIndex = root.rowCount + index
+                  root.selectCursorIndex(root.rowCount + index)
                 }
                 onExpandToggled: {
                   root.expandedTicketId = ""
