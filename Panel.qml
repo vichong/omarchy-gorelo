@@ -61,16 +61,7 @@ Panel {
     if (row) row.activate()
   }
 
-  function expandCursor() {
-    var row = currentRow()
-    if (!row) return
-    expandedTicketId = expandedTicketId === row.ticketId ? "" : row.ticketId
-  }
 
-  function assignCursor() {
-    var row = currentRow()
-    if (row && serviceReady && !row.mine) gorelo.assignToMe(row.ticketId)
-  }
 
   // The overlay is a separate plugin surface, so it goes through the shell.
   // The popup closes first because the overlay takes exclusive keyboard focus.
@@ -218,15 +209,6 @@ Panel {
         else if (dx !== 0) root.switchTab(dx)
       }
       onActivateRequested: if (root.cursorActive) root.activateCursor()
-      onTextKey: function(key) {
-        var lower = String(key).toLowerCase()
-        if (lower === "r" && root.serviceReady) root.gorelo.refresh(false)
-        else if (lower === "e" && root.cursorActive) root.expandCursor()
-        else if (lower === "a" && root.cursorActive) root.assignCursor()
-        else if (lower === "n") root.openOverlay("new")
-        else if (lower === "s") root.openOverlay("settings")
-        else if (lower === "w" && root.serviceReady) root.gorelo.openWebApp()
-      }
 
       Column {
         id: column
@@ -253,7 +235,7 @@ Panel {
 
               PanelActionButton {
                 iconText: "󰐕"                  // md-plus
-                tooltipText: "New ticket (n)"
+                tooltipText: "New ticket"
                 foreground: Qt.darker(root.fg, 1.4)
                 fontFamily: root.family
                 onClicked: root.openOverlay("new")
@@ -261,7 +243,7 @@ Panel {
 
               PanelActionButton {
                 iconText: "󰑐"                  // md-refresh
-                tooltipText: "Refresh (r)"
+                tooltipText: "Refresh"
                 foreground: Qt.darker(root.fg, 1.4)
                 fontFamily: root.family
                 onClicked: if (root.serviceReady) root.gorelo.refresh(false)
@@ -269,7 +251,7 @@ Panel {
 
               PanelActionButton {
                 iconText: "󰒓"                  // md-cog
-                tooltipText: "Settings (s)"
+                tooltipText: "Settings"
                 foreground: Qt.darker(root.fg, 1.4)
                 fontFamily: root.family
                 onClicked: root.openOverlay("settings")
@@ -474,16 +456,6 @@ Panel {
           }
         }
 
-        Text {
-          textFormat: Text.PlainText
-          width: parent.width
-          visible: root.connected && root.rowCount > 0
-          text: "enter open · e expand · a assign to me · n new · r refresh · s settings"
-          wrapMode: Text.WordWrap
-          color: Qt.darker(root.fg, 1.8)
-          font.family: root.family
-          font.pixelSize: Style.font.caption
-        }
       }
     }
   }

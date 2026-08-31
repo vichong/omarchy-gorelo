@@ -36,6 +36,7 @@ QtObject {
   property string ticketUrlTemplate: ConfigStore.DEFAULT_TICKET_URL
   property string activeTab: "mine"
   property bool openAfterCreate: true
+  property string browserDesktop: ""
   property bool configLoaded: false
   property string configError: ""
 
@@ -54,7 +55,10 @@ QtObject {
     command: ["mkdir", "-p", root.configDir]
   }
 
-  Component.onCompleted: root.configDirProcess.running = true
+  Component.onCompleted: {
+    root.configDirProcess.running = true
+    root.refreshBrowsers()
+  }
 
   function currentConfig() {
     return {
@@ -71,7 +75,8 @@ QtObject {
       defaultClientId: root.defaultClientId,
       ticketUrlTemplate: root.ticketUrlTemplate,
       activeTab: root.activeTab,
-      openAfterCreate: root.openAfterCreate
+      openAfterCreate: root.openAfterCreate,
+      browserDesktop: root.browserDesktop
     }
   }
 
@@ -106,6 +111,7 @@ QtObject {
     root.ticketUrlTemplate = c.ticketUrlTemplate
     root.activeTab = c.activeTab
     root.openAfterCreate = c.openAfterCreate
+    root.browserDesktop = c.browserDesktop
 
     var first = !root.configLoaded
     root.configLoaded = true
@@ -692,7 +698,7 @@ QtObject {
                 "-u", priority === 1 ? "critical" : "normal",
                 "-r", "gorelo-" + String(ticket.Id),
                 text.headline, text.body]
-    if (url) args = args.concat(["--exec", "xdg-open", url])
+    if (url) args = args.concat(["--exec"].concat(root.openUrlCommand(url)))
     Quickshell.execDetached(args)
   }
 
@@ -707,16 +713,60 @@ QtObject {
   property int pendingActions: 0
   readonly property bool actionBusy: pendingActions > 0
 
-  function openTicket(ticketId) {
-    var ticket = root.ticketFor(ticketId)
-    var url = ticket ? root.urlFor(ticket) : Api.ticketUrl(root.ticketUrlTemplate, { Id: String(ticketId) })
+  // ------------------------------------------------------------ browsers
+
+  // Installed browsers, from .desktop entries in the WebBrowser category:
+  // [{ path, name }]. Refreshed at startup and whenever settings open.
+  property var browsers: []
+
+  property Process browserScanProcess: Process {
+    command: ["bash", "-c", "for d in /usr/share/applications \"$HOME/.local/share/applications\" /var/lib/flatpak/exports/share/applications \"$HOME/.local/share/flatpak/exports/share/applications\"; do [ -d \"$d\" ] || continue; grep -lsE '^Categories=.*WebBrowser' \"$d\"/*.desktop; done 2>/dev/null | while read -r f; do printf '%s\\t%s\\n' \"$f\" \"$(grep -m1 '^Name=' \"$f\" | cut -d= -f2-)\"; done"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var lines = String(text || "").split("\n")
+        var seen = Object.create(null)
+        var out = []
+        for (var i = 0; i < lines.length; i++) {
+          var parts = lines[i].split("\t")
+          if (parts.length < 2) continue
+          var path = parts[0].trim()
+          var name = parts[1].trim()
+          if (!path || !name || seen[name]) continue
+          seen[name] = true
+          out.push({ path: path, name: name })
+        }
+        out.sort(function(a, b) { return a.name.localeCompare(b.name) })
+        root.browsers = out
+      }
+    }
+  }
+
+  function refreshBrowsers() {
+    if (!browserScanProcess.running) browserScanProcess.running = true
+  }
+
+  // argv that opens a URL in the chosen browser, or the system default.
+  function openUrlCommand(url) {
+    if (root.browserDesktop) return ["gio", "launch", root.browserDesktop, url]
+    return ["xdg-open", url]
+  }
+
+  function openUrl(url) {
     if (!url) return false
-    Qt.openUrlExternally(url)
+    if (root.browserDesktop) Quickshell.execDetached(root.openUrlCommand(url))
+    else Qt.openUrlExternally(url)
     return true
   }
 
+  function openTicket(ticketId) {
+    var ticket = root.ticketFor(ticketId)
+    var url = ticket ? root.urlFor(ticket) : Api.ticketUrl(root.ticketUrlTemplate, { Id: String(ticketId) })
+    return root.openUrl(url)
+  }
+
   function openWebApp() {
-    Qt.openUrlExternally("https://app.gorelo.io/")
+    root.openUrl("https://app.gorelo.io/")
   }
 
   function patchTicket(ticketId, patch, label, callback) {
@@ -869,7 +919,7 @@ QtObject {
     if (warning) root.createError = warning
     var ticket = { Id: id }
     root.toast("Ticket created", warning || "")
-    if (root.openAfterCreate && id) Qt.openUrlExternally(root.urlFor(ticket))
+    if (root.openAfterCreate && id) root.openUrl(root.urlFor(ticket))
     root.created(id, warning)
     root.poll()
   }

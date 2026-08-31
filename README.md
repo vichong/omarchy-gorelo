@@ -27,20 +27,20 @@ desk, not a managed endpoint.
   an unread update. Click the notification to open the ticket. Threshold by
   priority.
 - **New ticket overlay** — client (searchable), title, priority, description
-  and an *Attach a region…* button that hides the overlay, runs the Omarchy
+  and an *Add screenshot…* button that hides the overlay, runs the Omarchy
   region screenshot, and comes back with the file attached. The ticket lands
   in your default group/status/type, assigned to you, and opens in the
   browser.
 - **Settings overlay** — region (United States / Australia), API key, which
   technician you are, new-ticket defaults, statuses shown, poll interval,
-  notification threshold, ticket URL template.
+  notification threshold, ticket URL template, and which installed browser
+  opens tickets (system default, or any browser from the applications menu).
 
 ## Keyboard
 
-With the queue open: `j`/`k` or `↑`/`↓` move, `←`/`→` switch tab, `enter`
-opens the ticket, `e` unfolds actions, `a` assigns it to you, `n` new ticket,
-`s` settings, `r` refresh, `w` opens the Gorelo web app, `esc` closes, `tab`
-moves to the next bar panel.
+The queue follows the same conventions as every Omarchy panel: `↑`/`↓` (or
+`j`/`k`) move, `←`/`→` switch tab, `enter` opens the ticket, `esc` closes,
+`tab` moves to the next bar panel. Everything else is a button.
 
 ## Scripting
 

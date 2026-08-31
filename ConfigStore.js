@@ -9,7 +9,7 @@ var KEYS = [
   "region", "technicianId", "technicianName", "pollSeconds", "notify",
   "notifyMinPriority", "statusIds", "defaultStatusId", "defaultGroupId",
   "defaultTypeId", "defaultClientId", "ticketUrlTemplate", "activeTab",
-  "openAfterCreate"
+  "openAfterCreate", "browserDesktop"
 ]
 
 var DEFAULT_TICKET_URL = "https://app.gorelo.io/Ticket/{id}"
@@ -70,7 +70,10 @@ function parse(text) {
       ticketUrlTemplate: typeof raw.ticketUrlTemplate === "string" && raw.ticketUrlTemplate.trim()
         ? raw.ticketUrlTemplate.trim() : DEFAULT_TICKET_URL,
       activeTab: raw.activeTab === "all" ? "all" : "mine",
-      openAfterCreate: raw.openAfterCreate !== false
+      openAfterCreate: raw.openAfterCreate !== false,
+      // Absolute path of a browser .desktop entry; empty means the system default.
+      browserDesktop: typeof raw.browserDesktop === "string" && /^\/[^\n]+\.desktop$/.test(raw.browserDesktop)
+        ? raw.browserDesktop : ""
     }
   }
 }

@@ -47,6 +47,7 @@ Item {
     }
     // A key is the first thing a fresh install needs.
     if (service && !service.configured) root.tab = "settings"
+    if (service) service.refreshBrowsers()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -288,6 +289,7 @@ Item {
 
             SearchableDropdown {
               id: clientPicker
+              popupMinHeight: Style.space(400)
               width: newColumn.width
               showLabel: false
               fontFamily: root.family
@@ -355,7 +357,7 @@ Item {
                 Button {
                   visible: !newPane.draft.attachmentPath
                   bordered: true
-                  text: "Attach a region…"
+                  text: "Add screenshot…"
                   foreground: root.foreground
                   fontFamily: root.family
                   // The overlay hides first so it is not in the shot; the
@@ -508,7 +510,7 @@ Item {
 
       readonly property bool popupOpen: technicianPicker.popupOpen || statusPicker.popupOpen
         || groupPicker.popupOpen || typePicker.popupOpen || shownStatuses.popupOpen
-        || notifyLevel.popupOpen
+        || notifyLevel.popupOpen || browserPicker.popupOpen
       readonly property bool keyringBusy: root.service && root.service.credentialBusy
       readonly property bool regionChanged: root.service && root.regionDraft !== root.service.region
       readonly property bool needsKey: !root.service || !root.service.hasKey || settingsPane.regionChanged
@@ -652,6 +654,7 @@ Item {
 
               SearchableDropdown {
                 id: technicianPicker
+                popupMinHeight: Style.space(400)
                 width: settingsColumn.width
                 showLabel: false
                 fontFamily: root.family
@@ -829,6 +832,23 @@ Item {
             spacing: Style.spacing.lg
 
             SectionTitle { text: "Links" }
+
+            Dropdown {
+              id: browserPicker
+              label: "Open tickets with"
+              width: Style.space(320)
+              fontFamily: root.family
+              foreground: root.foreground
+              options: [{ value: "", label: "System default browser" }].concat(
+                root.service ? root.service.browsers.map(function(b) { return { value: b.path, label: b.name } }) : [])
+              value: root.service ? root.service.browserDesktop : ""
+              onChanged: function(value) { if (root.service) root.service.saveConfig({ browserDesktop: value }) }
+            }
+
+            Caption {
+              width: settingsColumn.width
+              text: "Browsers found in the applications menu. Also used for notification clicks and newly created tickets."
+            }
 
             Column {
               width: settingsColumn.width
