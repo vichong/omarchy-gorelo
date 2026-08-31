@@ -23,8 +23,10 @@ desk, not a managed endpoint.
   last update. Each row shows number, title, client, status, age, unread and
   "waiting on client" state. Click or Enter opens the ticket in the browser;
   unfold a row for a status dropdown, *Assign to me* and a private note.
-  Its search bar filters the loaded queue as you type; press Enter to search
-  across the server instead, including closed tickets.
+  Its search bar filters the loaded queue as you type and also finds managed
+  computers by device name or last logged-on user. Press Enter to search
+  tickets and device names across the server too, including closed tickets;
+  click a device to open its page in Gorelo.
 - **Notifications** — when a ticket is assigned to you, or one of yours gets
   an unread update. Click the notification to open the ticket. Threshold by
   priority.
@@ -35,8 +37,9 @@ desk, not a managed endpoint.
   browser.
 - **Settings overlay** — region (United States / Australia), API key, which
   technician you are, new-ticket defaults, statuses shown, poll interval,
-  notification threshold, ticket URL template, and which installed browser
-  opens tickets (system default, or any browser from the applications menu).
+  notification threshold, ticket and device URL templates, and which installed
+  browser opens Gorelo links (system default, or any browser from the
+  applications menu).
 
 ## Keyboard
 
@@ -145,6 +148,8 @@ The plugin never touches any other configuration.
 - Time entries cannot be created through the API, so there is no timer.
 - The ticket URL is a template (`{id}`, `{number}`, `{displayNumber}`) because
   the web app's path isn't documented; change it in Settings if yours differs.
+- The device URL is likewise configurable in Settings with `{id}` and the
+  URL-encoded computer `{name}` placeholders.
 
 ## Security
 

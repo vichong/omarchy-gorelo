@@ -42,6 +42,30 @@ equal(Model.filterTickets(searchable, ctx, "gLoBeX").map(t => t.Id), ["s2"], "ma
 equal(Model.filterTickets(searchable, ctx, ""), searchable, "empty query returns everything")
 equal(Model.filterTickets(searchable, ctx, "   \t"), searchable, "whitespace-only query returns everything")
 
+const devices = [
+  { Id: "d1", Name: "WS-ALPHA", DisplayName: "Ada Laptop", Description: "Design workstation",
+    ClientId: 1, LastLoggedOnUser: "Ada", LastLoggedOnUserUpn: "ada@example.com", SerialNo: "SER-1",
+    Status: { Id: 1, Name: "Online" }, OsName: "Windows 11", LocalIPAddress: "10.0.0.2", PublicIPAddress: "1.2.3.4" },
+  { Id: "d2", Name: "WS-BETA", ClientId: 2, LastLoggedOnUserUpn: "bob@example.com", SerialNo: "SER-2",
+    Status: { Id: 2, Name: "Disconnected" }, Os: "Windows", LastDisconnectDateTime: "2026-08-31T09:00:00Z" },
+  { Id: "d3", Name: "SERVER-Z", ClientId: 1, Status: { Name: "ONLINE - idle" } }
+]
+equal(Model.matchesDevice(devices[0], ctx, "alpha"), true, "device host name matches")
+equal(Model.matchesDevice(devices[0], ctx, "ada laptop"), true, "device display name matches")
+equal(Model.matchesDevice(devices[0], ctx, "design"), true, "device description matches")
+equal(Model.matchesDevice(devices[0], ctx, "ada"), true, "last logged-on user matches")
+equal(Model.matchesDevice(devices[1], ctx, "bob@example"), true, "last logged-on UPN matches")
+equal(Model.matchesDevice(devices[1], ctx, "globex"), true, "device client name matches")
+equal(Model.matchesDevice(devices[0], ctx, "ser-1"), true, "device serial matches")
+equal(Model.matchesDevice(devices[1], ctx, "nope"), false, "unrelated device does not match")
+equal(Model.filterDevices(devices, ctx, "", 2).map(d => d.Id), ["d1", "d3"], "devices sort online first and respect limit")
+equal(Model.filterDevices(devices, ctx, "", 8).map(d => d.Id), ["d1", "d3", "d2"], "devices sort by display or host name")
+const deviceRow = Model.projectDeviceRow(devices[1], ctx, d => "https://x/" + d.Id)
+equal([deviceRow.deviceId, deviceRow.name, deviceRow.hostName, deviceRow.clientName], ["d2", "WS-BETA", "WS-BETA", "Globex"], "device identity projection")
+equal([deviceRow.online, deviceRow.statusName, deviceRow.lastUser, deviceRow.lastSeen], [false, "Disconnected", "bob@example.com", "1h"], "offline device projection")
+equal([deviceRow.os, deviceRow.url], ["Windows", "https://x/d2"], "device detail projection")
+equal(Model.projectDeviceRow(devices[0], ctx).lastSeen, "", "online device has no last-seen age")
+
 equal(Model.counts(tickets.slice(0, 3)), { total: 3, unread: 1, urgent: 1, waiting: 1 }, "counts")
 
 const previous = Model.indexOf([tickets[0], tickets[1]])

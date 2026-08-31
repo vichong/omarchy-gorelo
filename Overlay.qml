@@ -835,7 +835,7 @@ Item {
 
             Dropdown {
               id: browserPicker
-              label: "Open tickets with"
+              label: "Open Gorelo links with"
               width: Style.space(320)
               fontFamily: root.family
               foreground: root.foreground
@@ -847,7 +847,7 @@ Item {
 
             Caption {
               width: settingsColumn.width
-              text: "Browsers found in the applications menu. Also used for notification clicks and newly created tickets."
+              text: "Browsers found in the applications menu. Also used for device links, notification clicks and newly created tickets."
             }
 
             Column {
@@ -867,6 +867,26 @@ Item {
               Caption {
                 width: settingsColumn.width
                 text: "{id}, {number} and {displayNumber} are filled in. Change this if your Gorelo web app uses a different ticket path."
+              }
+            }
+
+            Column {
+              width: settingsColumn.width
+              spacing: Style.spacing.sm
+
+              FieldLabel { text: "Device URL" }
+
+              TextField {
+                id: deviceUrlField
+                width: settingsColumn.width
+                text: root.service ? root.service.deviceUrlTemplate : ""
+                foreground: root.foreground
+                onEditingFinished: if (root.service && text.trim() !== root.service.deviceUrlTemplate) root.service.saveConfig({ deviceUrlTemplate: text.trim() })
+              }
+
+              Caption {
+                width: settingsColumn.width
+                text: "{id} and {name} are filled in; {name} is the URL-encoded computer name."
               }
             }
           }

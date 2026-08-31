@@ -8,11 +8,12 @@ var REGIONS = ["usw", "aue"]
 var KEYS = [
   "region", "technicianId", "technicianName", "pollSeconds", "notify",
   "notifyMinPriority", "statusIds", "defaultStatusId", "defaultGroupId",
-  "defaultTypeId", "defaultClientId", "ticketUrlTemplate", "activeTab",
+  "defaultTypeId", "defaultClientId", "ticketUrlTemplate", "deviceUrlTemplate", "activeTab",
   "openAfterCreate", "browserDesktop"
 ]
 
 var DEFAULT_TICKET_URL = "https://app.gorelo.io/Ticket/{id}"
+var DEFAULT_DEVICE_URL = "https://app.gorelo.io/asset/device-detail/{id}?hostName={name}"
 
 function intOr(value, fallback) {
   var n = typeof value === "number" ? value : parseInt(value, 10)
@@ -69,6 +70,8 @@ function parse(text) {
       defaultClientId: Math.max(0, intOr(raw.defaultClientId, 0)),
       ticketUrlTemplate: typeof raw.ticketUrlTemplate === "string" && raw.ticketUrlTemplate.trim()
         ? raw.ticketUrlTemplate.trim() : DEFAULT_TICKET_URL,
+      deviceUrlTemplate: typeof raw.deviceUrlTemplate === "string" && raw.deviceUrlTemplate.trim()
+        ? raw.deviceUrlTemplate.trim() : DEFAULT_DEVICE_URL,
       activeTab: raw.activeTab === "all" ? "all" : "mine",
       openAfterCreate: raw.openAfterCreate !== false,
       // Absolute path of a browser .desktop entry; empty means the system default.

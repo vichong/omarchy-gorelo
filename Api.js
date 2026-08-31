@@ -156,6 +156,14 @@ function ticketUrl(template, ticket) {
     .replace("{displayNumber}", encodeURIComponent(String(ticket.DisplayNumber || "")))
 }
 
+function deviceUrl(template, device) {
+  if (!device) return ""
+  var t = template || "https://app.gorelo.io/asset/device-detail/{id}?hostName={name}"
+  return t
+    .replace("{id}", encodeURIComponent(String(device.Id || "")))
+    .replace("{name}", encodeURIComponent(String(device.Name || "")))
+}
+
 // Comment bodies are HTML; a note typed in the panel is plain text.
 function escapeHtml(text) {
   return String(text || "")

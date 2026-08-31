@@ -34,6 +34,7 @@ QtObject {
   property int defaultTypeId: 0
   property int defaultClientId: 0
   property string ticketUrlTemplate: ConfigStore.DEFAULT_TICKET_URL
+  property string deviceUrlTemplate: ConfigStore.DEFAULT_DEVICE_URL
   property string activeTab: "mine"
   property bool openAfterCreate: true
   property string browserDesktop: ""
@@ -74,6 +75,7 @@ QtObject {
       defaultTypeId: root.defaultTypeId,
       defaultClientId: root.defaultClientId,
       ticketUrlTemplate: root.ticketUrlTemplate,
+      deviceUrlTemplate: root.deviceUrlTemplate,
       activeTab: root.activeTab,
       openAfterCreate: root.openAfterCreate,
       browserDesktop: root.browserDesktop
@@ -109,6 +111,7 @@ QtObject {
     root.defaultTypeId = c.defaultTypeId
     root.defaultClientId = c.defaultClientId
     root.ticketUrlTemplate = c.ticketUrlTemplate
+    root.deviceUrlTemplate = c.deviceUrlTemplate
     root.activeTab = c.activeTab
     root.openAfterCreate = c.openAfterCreate
     root.browserDesktop = c.browserDesktop
@@ -299,6 +302,14 @@ QtObject {
   property var userNames: ({})
   property bool referenceLoaded: false
 
+  property var devices: []
+  property bool devicesLoaded: false
+  property bool devicesLoading: false
+  property string devicesError: ""
+  property bool devicesTruncated: false
+  property int deviceLoadSerial: 0
+  property ListModel deviceRows: ListModel {}
+
   property var mineTickets: []
   property var allTickets: []
   property string searchQuery: ""
@@ -346,6 +357,12 @@ QtObject {
     root.clientNames = Object.create(null)
     root.userNames = Object.create(null)
     root.referenceLoaded = false
+    root.devices = []
+    root.devicesLoaded = false
+    root.devicesLoading = false
+    root.devicesError = ""
+    root.devicesTruncated = false
+    root.deviceLoadSerial++
     root.mineTickets = []
     root.allTickets = []
     root.searchQuery = ""
@@ -362,6 +379,7 @@ QtObject {
     root.allTruncated = false
     root.pollBackoff = 0
     root.rows.clear()
+    root.deviceRows.clear()
     root.ticketRevision++
   }
 
@@ -428,6 +446,7 @@ QtObject {
     root.pendingActions = 0
     root.creating = false
     root.searching = false
+    root.devicesLoading = false
     root.cancelUpload()
     root.generation++
   }
@@ -603,7 +622,12 @@ QtObject {
     interval: 30 * 60 * 1000
     repeat: true
     running: root.connected
-    onTriggered: root.loadReference(function() {})
+    onTriggered: {
+      var refreshDevices = root.devicesLoaded
+      root.loadReference(function(ok) {
+        if (ok && refreshDevices && root.connected) root.loadDevices()
+      })
+    }
   }
 
   // ------------------------------------------------------------ polling
@@ -716,6 +740,53 @@ QtObject {
     return Api.ticketUrl(root.ticketUrlTemplate, ticket)
   }
 
+  function urlForDevice(device) {
+    return Api.deviceUrl(root.deviceUrlTemplate, device)
+  }
+
+  function mergeDevices(base, additions) {
+    var out = []
+    var positions = Object.create(null)
+    function add(device) {
+      if (!device || typeof device !== "object" || device.Id === undefined || device.Id === null) return
+      var id = String(device.Id)
+      if (positions[id] !== undefined) out[positions[id]] = device
+      else {
+        positions[id] = out.length
+        out.push(device)
+      }
+    }
+    var first = Array.isArray(base) ? base : []
+    var second = Array.isArray(additions) ? additions : []
+    for (var i = 0; i < first.length; i++) add(first[i])
+    for (var j = 0; j < second.length; j++) add(second[j])
+    return out
+  }
+
+  function loadDevices() {
+    if (!root.connected || root.devicesLoading) return false
+    var gen = root.generation
+    var serial = ++root.deviceLoadSerial
+    root.devicesLoading = true
+    root.devicesError = ""
+    root.requestAll("/v1/assets/agents", { PageSize: 200 }, 10, function(items, err, truncated) {
+      if (gen !== root.generation || serial !== root.deviceLoadSerial) return
+      root.devicesLoading = false
+      if (err) {
+        root.devicesError = err.error
+        root.rebuildRows()
+        return
+      }
+      // Keep any exact-query hits that landed while the capped cache loaded.
+      root.devices = root.mergeDevices(items.slice(0, 2000), root.devices)
+      root.devicesLoaded = true
+      root.devicesTruncated = truncated || items.length >= 2000
+      root.devicesError = ""
+      root.rebuildRows()
+    })
+    return true
+  }
+
   property Timer searchDebounce: Timer {
     interval: 120
     onTriggered: root.rebuildRows()
@@ -733,6 +804,7 @@ QtObject {
     var next = String(text || "")
     if (next === root.searchQuery) return
     root.searchQuery = next
+    root.devicesError = ""
     // Editing the text always returns to filtering the loaded queue; a
     // server result set only ever belongs to the exact text that ran it.
     root.leaveSearch()
@@ -741,6 +813,7 @@ QtObject {
       root.rebuildRows()
       return
     }
+    if (root.connected && !root.devicesLoaded && !root.devicesLoading) root.loadDevices()
     searchDebounce.restart()
   }
 
@@ -754,6 +827,7 @@ QtObject {
     root.searching = true
     root.searchResults = []
     root.searchError = ""
+    root.devicesError = ""
     root.rebuildRows()
     var params = { Query: query, PageSize: 50, SortBy: "updatedOn", SortOrder: "desc" }
     root.request("GET", "/v1/tickets" + Api.query(params), null, function(result) {
@@ -765,6 +839,18 @@ QtObject {
       } else {
         root.searchError = ""
         root.searchResults = Api.validTicketList(result.data)
+      }
+      root.rebuildRows()
+    })
+    var deviceParams = { Query: query, PageSize: 25 }
+    root.request("GET", "/v1/assets/agents" + Api.query(deviceParams), null, function(result) {
+      if (gen !== root.generation || serial !== root.searchSerial) return
+      if (!result.ok) {
+        root.devicesError = result.error
+      } else {
+        root.devices = root.mergeDevices(root.devices, result.data)
+        root.devicesLoaded = true
+        root.devicesError = ""
       }
       root.rebuildRows()
     })
@@ -787,6 +873,14 @@ QtObject {
     var list = Model.buildRows(filtered, ctx, root.urlFor)
     root.rows.clear()
     for (var i = 0; i < list.length; i++) root.rows.append(list[i])
+    root.deviceRows.clear()
+    var query = root.searchQuery.trim()
+    if (query && root.devicesLoaded) {
+      var matches = Model.filterDevices(root.devices, ctx, query, 8)
+      for (var j = 0; j < matches.length; j++) {
+        root.deviceRows.append(Model.projectDeviceRow(matches[j], ctx, root.urlForDevice))
+      }
+    }
   }
 
   function ticketFor(ticketId) {
@@ -794,6 +888,12 @@ QtObject {
     for (var i = 0; i < root.searchResults.length; i++) if (String(root.searchResults[i].Id) === id) return root.searchResults[i]
     for (var j = 0; j < root.allTickets.length; j++) if (String(root.allTickets[j].Id) === id) return root.allTickets[j]
     for (var k = 0; k < root.mineTickets.length; k++) if (String(root.mineTickets[k].Id) === id) return root.mineTickets[k]
+    return null
+  }
+
+  function deviceFor(deviceId) {
+    var id = String(deviceId)
+    for (var i = 0; i < root.devices.length; i++) if (String(root.devices[i].Id) === id) return root.devices[i]
     return null
   }
 
@@ -872,6 +972,12 @@ QtObject {
   function openTicket(ticketId) {
     var ticket = root.ticketFor(ticketId)
     var url = ticket ? root.urlFor(ticket) : Api.ticketUrl(root.ticketUrlTemplate, { Id: String(ticketId) })
+    return root.openUrl(url)
+  }
+
+  function openDevice(deviceId) {
+    var device = root.deviceFor(deviceId)
+    var url = device ? root.urlForDevice(device) : Api.deviceUrl(root.deviceUrlTemplate, { Id: String(deviceId), Name: "" })
     return root.openUrl(url)
   }
 

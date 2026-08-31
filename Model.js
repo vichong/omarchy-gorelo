@@ -141,6 +141,68 @@ function filterTickets(tickets, ctx, query) {
   return out
 }
 
+function deviceOnline(device) {
+  return !!(device && device.Status && /online/i.test(String(device.Status.Name || "")))
+}
+
+function deviceName(device) {
+  return String((device && (device.DisplayName || device.Name)) || "")
+}
+
+function matchesDevice(device, ctx, query) {
+  var needle = String(query || "").trim().toLowerCase()
+  if (!needle) return true
+  if (!device || typeof device !== "object") return false
+  ctx = ctx || {}
+  var fields = [
+    device.Name,
+    device.DisplayName,
+    device.Description,
+    device.LastLoggedOnUser,
+    device.LastLoggedOnUserUpn,
+    ctx.clientNames && ctx.clientNames[String(device.ClientId)],
+    device.SerialNo
+  ]
+  for (var i = 0; i < fields.length; i++) {
+    if (String(fields[i] || "").toLowerCase().indexOf(needle) !== -1) return true
+  }
+  return false
+}
+
+function filterDevices(devices, ctx, query, limit) {
+  if (!Array.isArray(devices)) return []
+  var out = []
+  for (var i = 0; i < devices.length; i++) {
+    if (matchesDevice(devices[i], ctx || {}, query)) out.push(devices[i])
+  }
+  out.sort(function(a, b) {
+    var onlineDifference = (deviceOnline(b) ? 1 : 0) - (deviceOnline(a) ? 1 : 0)
+    if (onlineDifference !== 0) return onlineDifference
+    return deviceName(a).toLowerCase().localeCompare(deviceName(b).toLowerCase())
+  })
+  var cap = Number.isInteger(limit) ? Math.max(0, limit) : out.length
+  return out.slice(0, cap)
+}
+
+function projectDeviceRow(device, ctx, urlFn) {
+  ctx = ctx || {}
+  var online = deviceOnline(device)
+  return {
+    deviceId: String(device.Id),
+    name: deviceName(device),
+    hostName: String(device.Name || ""),
+    clientName: (ctx.clientNames && ctx.clientNames[String(device.ClientId)]) || "",
+    statusName: device.Status && device.Status.Name ? String(device.Status.Name) : "",
+    online: online,
+    lastUser: String(device.LastLoggedOnUser || device.LastLoggedOnUserUpn || ""),
+    os: String(device.OsName || device.Os || ""),
+    lastSeen: online ? "" : ageString(device.LastDisconnectDateTime, ctx.now),
+    localIp: String(device.LocalIPAddress || ""),
+    publicIp: String(device.PublicIPAddress || ""),
+    url: urlFn ? urlFn(device) : ""
+  }
+}
+
 function counts(tickets) {
   var out = { total: 0, unread: 0, urgent: 0, waiting: 0 }
   if (!Array.isArray(tickets)) return out

@@ -18,6 +18,7 @@ equal([parsed.config.region, parsed.config.technicianId, parsed.config.pollSecon
   ["aue", 12, 30, 5], "coercion and clamping")
 equal(parsed.config.statusIds, [1, 2], "status ids deduplicated and validated")
 equal(parsed.config.ticketUrlTemplate, ConfigStore.DEFAULT_TICKET_URL, "blank template falls back")
+equal(parsed.config.deviceUrlTemplate, ConfigStore.DEFAULT_DEVICE_URL, "device template defaults")
 equal(parsed.config.activeTab, "all", "tab")
 assert(!("apiKey" in parsed.config), "unknown keys (including a stray apiKey) are dropped")
 
@@ -31,5 +32,7 @@ equal(ConfigStore.parse(JSON.stringify({ browserDesktop: "/usr/share/application
 equal(ConfigStore.parse(JSON.stringify({ browserDesktop: "chromium" })).config.browserDesktop, "", "relative browser value rejected")
 equal(ConfigStore.parse(JSON.stringify({ browserDesktop: "/tmp/x.desktop\nrm" })).config.browserDesktop, "", "browser value with newline rejected")
 equal(empty.config.browserDesktop, "", "browser defaults to system default")
+equal(ConfigStore.parse(JSON.stringify({ deviceUrlTemplate: " https://x/{id}/{name} " })).config.deviceUrlTemplate,
+  "https://x/{id}/{name}", "device template is trimmed")
 
 done("test_config")

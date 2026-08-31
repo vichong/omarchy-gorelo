@@ -25,28 +25,32 @@ Panel {
   readonly property bool showCount: setting("showCount", true) !== false
 
   property string expandedTicketId: ""
+  property string expandedDeviceId: ""
   property int cursorIndex: 0
   property bool cursorActive: false
 
   readonly property int rowCount: serviceReady ? gorelo.rows.count : 0
+  readonly property int deviceRowCount: serviceReady ? gorelo.deviceRows.count : 0
+  readonly property int totalRowCount: rowCount + deviceRowCount
   readonly property string tab: serviceReady ? gorelo.activeTab : "mine"
   readonly property var counts: serviceReady ? gorelo.mineCounts : ({ total: 0, unread: 0, urgent: 0, waiting: 0 })
   readonly property var allCounts: serviceReady ? gorelo.allCounts : ({ total: 0, unread: 0, urgent: 0, waiting: 0 })
 
-  onRowCountChanged: {
-    cursorIndex = rowCount > 0 ? Math.max(0, Math.min(rowCount - 1, cursorIndex)) : 0
+  onTotalRowCountChanged: {
+    cursorIndex = totalRowCount > 0 ? Math.max(0, Math.min(totalRowCount - 1, cursorIndex)) : 0
   }
 
   onOpenedChanged: if (!opened) {
     if (serviceReady) gorelo.clearSearch()
     expandedTicketId = ""
+    expandedDeviceId = ""
     cursorActive = false
     cursorIndex = 0
   }
 
   function moveCursor(delta) {
-    if (rowCount === 0 || delta === 0) return
-    cursorIndex = Math.max(0, Math.min(rowCount - 1, cursorIndex + delta))
+    if (totalRowCount === 0 || delta === 0) return
+    cursorIndex = Math.max(0, Math.min(totalRowCount - 1, cursorIndex + delta))
   }
 
   function switchTab(delta) {
@@ -54,11 +58,13 @@ Panel {
     gorelo.setActiveTab(tab === "mine" ? "all" : "mine")
     cursorIndex = 0
     expandedTicketId = ""
+    expandedDeviceId = ""
   }
 
   function currentRow() {
-    if (cursorIndex < 0 || cursorIndex >= ticketRepeater.count) return null
-    return ticketRepeater.itemAt(cursorIndex)
+    if (cursorIndex < 0 || cursorIndex >= totalRowCount) return null
+    if (cursorIndex < ticketRepeater.count) return ticketRepeater.itemAt(cursorIndex)
+    return deviceRepeater.itemAt(cursorIndex - ticketRepeater.count)
   }
 
   function activateCursor() {
@@ -304,6 +310,7 @@ Panel {
             root.gorelo.setActiveTab(value)
             root.cursorIndex = 0
             root.expandedTicketId = ""
+            root.expandedDeviceId = ""
           }
         }
 
@@ -316,7 +323,7 @@ Panel {
           TextField {
             id: searchField
             anchors.fill: parent
-            placeholderText: "Search tickets…"
+            placeholderText: "Search tickets or devices…"
             foreground: root.fg
             font.family: root.family
             rightPadding: clearSearchButton.visible ? Style.space(36) : horizontalPadding
@@ -458,6 +465,27 @@ Panel {
         Text {
           textFormat: Text.PlainText
           width: parent.width
+          visible: root.connected && root.gorelo.searchQuery.trim() !== "" && root.gorelo.devicesLoading
+          text: "Loading devices…"
+          color: root.dim
+          font.family: root.family
+          font.pixelSize: Style.font.caption
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          visible: root.connected && root.gorelo.searchQuery.trim() !== "" && root.gorelo.devicesError !== ""
+          text: root.serviceReady ? root.gorelo.devicesError : ""
+          wrapMode: Text.WordWrap
+          color: Color.urgent
+          font.family: root.family
+          font.pixelSize: Style.font.caption
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
           visible: root.connected && !root.gorelo.needsTechnician && root.gorelo.searchError !== ""
           text: root.serviceReady ? root.gorelo.searchError : ""
           wrapMode: Text.WordWrap
@@ -479,10 +507,11 @@ Panel {
           textFormat: Text.PlainText
           width: parent.width
           visible: root.connected && !root.gorelo.needsTechnician && root.rowCount === 0
+            && root.deviceRowCount === 0 && !root.gorelo.devicesLoading
             && !root.gorelo.searchActive && !root.gorelo.searching
           text: root.gorelo && root.gorelo.firstPollDone
             ? (root.gorelo.searchQuery.trim()
-              ? "No tickets match."
+              ? "No tickets or devices match."
               : (root.tab === "mine" ? "Nothing assigned to you. Nice." : "No open tickets."))
             : "Loading tickets…"
           wrapMode: Text.WordWrap
@@ -516,7 +545,7 @@ Panel {
         // ---------- ticket list ----------
         ScrollView {
           id: listScroller
-          visible: root.connected && root.rowCount > 0
+          visible: root.connected && root.totalRowCount > 0
           width: parent.width
           implicitHeight: Math.min(rowsColumn.implicitHeight, Style.space(480))
           clip: true
@@ -548,9 +577,54 @@ Panel {
                   root.cursorIndex = index
                 }
                 onExpandToggled: {
+                  root.expandedDeviceId = ""
                   root.expandedTicketId = root.expandedTicketId === ticketId ? "" : ticketId
                 }
               }
+            }
+
+
+            PanelSectionHeader {
+              width: parent.width
+              visible: root.serviceReady && root.gorelo.searchQuery.trim() !== "" && root.deviceRowCount > 0
+              text: "DEVICES · " + root.deviceRowCount
+              foreground: root.fg
+              fontFamily: root.family
+            }
+
+            Repeater {
+              id: deviceRepeater
+              model: root.serviceReady ? root.gorelo.deviceRows : null
+              delegate: DeviceRow {
+                required property int index
+
+                width: rowsColumn.width
+                gorelo: root.gorelo
+                bar: root.bar
+                fill: root.hoverFill
+                currentFill: root.selectedFill
+                hasCursor: root.cursorActive && root.cursorIndex === root.rowCount + index
+                expanded: root.expandedDeviceId === deviceId
+                onCursorRequested: {
+                  root.cursorActive = true
+                  root.cursorIndex = root.rowCount + index
+                }
+                onExpandToggled: {
+                  root.expandedTicketId = ""
+                  root.expandedDeviceId = root.expandedDeviceId === deviceId ? "" : deviceId
+                }
+              }
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              visible: root.serviceReady && root.gorelo.devicesTruncated && root.deviceRowCount > 0
+              text: "Device cache is capped at 2,000; press Enter to search Gorelo directly."
+              wrapMode: Text.WordWrap
+              color: root.dim
+              font.family: root.family
+              font.pixelSize: Style.font.caption
             }
           }
         }

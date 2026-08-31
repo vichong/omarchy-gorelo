@@ -44,6 +44,10 @@ equal(Api.userDisplayName({ Email: "a@b.c" }), "a@b.c", "user display name falls
 
 equal(Api.ticketUrl("https://x/{id}/{number}/{displayNumber}", { Id: "a b", Number: 12, DisplayNumber: "T#12" }),
   "https://x/a%20b/12/T%2312", "ticket url template substitution is encoded")
+equal(Api.deviceUrl("https://x/{id}?name={name}", { Id: "a b", Name: "PC #1" }),
+  "https://x/a%20b?name=PC%20%231", "device url template substitution is encoded")
+equal(Api.deviceUrl("", { Id: "d1", Name: "host" }),
+  "https://app.gorelo.io/asset/device-detail/d1?hostName=host", "device url has a default")
 equal(Api.escapeHtml("<b>&\n\"x\""), "&lt;b&gt;&amp;<br>&quot;x&quot;", "html escape")
 equal(Api.validTicketList([{ Id: 1 }, null, { NoId: true }, "x"]).length, 1, "ticket list validation")
 
