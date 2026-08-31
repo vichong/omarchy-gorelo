@@ -44,12 +44,7 @@ Panel {
 
   onOpenedChanged: if (!opened) {
     if (serviceReady) gorelo.clearSearch()
-    expandedTicketId = ""
-    expandedDeviceId = ""
-    cursorActive = false
-    cursorIndex = 0
-    cursorTicketId = ""
-    cursorDeviceId = ""
+    resetCursor(true)
   }
 
   onCursorActiveChanged: {
@@ -78,6 +73,15 @@ Panel {
   function selectCursorIndex(nextIndex) {
     cursorIndex = nextIndex
     rememberCursor()
+  }
+
+  function resetCursor(deactivate) {
+    cursorIndex = 0
+    cursorTicketId = ""
+    cursorDeviceId = ""
+    expandedTicketId = ""
+    expandedDeviceId = ""
+    if (deactivate === true) cursorActive = false
   }
 
   function restoreRowsState() {
@@ -112,11 +116,7 @@ Panel {
   function switchTab(delta) {
     if (!serviceReady) return
     gorelo.setActiveTab(tab === "mine" ? "all" : "mine")
-    cursorIndex = 0
-    cursorTicketId = ""
-    cursorDeviceId = ""
-    expandedTicketId = ""
-    expandedDeviceId = ""
+    resetCursor(false)
   }
 
   function currentRow() {
@@ -201,7 +201,7 @@ Panel {
     }
 
     function refresh(): void {
-      if (root.serviceReady) root.gorelo.refresh(false)
+      if (root.serviceReady) root.gorelo.refresh()
     }
 
     //   omarchy-shell gorelo newTicket   (bind to a key for a quick ticket)
@@ -232,7 +232,7 @@ Panel {
     fixedHeight: vertical ? Style.bar.iconSlot : -1
     onPressed: function(mouseButton) {
       if (mouseButton === Qt.RightButton) root.openOverlay("new")
-      else if (mouseButton === Qt.MiddleButton) { if (root.serviceReady) root.gorelo.refresh(false) }
+      else if (mouseButton === Qt.MiddleButton) { if (root.serviceReady) root.gorelo.refresh() }
       else root.toggle()
     }
 
@@ -342,7 +342,7 @@ Panel {
                 tooltipText: "Refresh"
                 foreground: Qt.darker(root.fg, 1.4)
                 fontFamily: root.family
-                onClicked: if (root.serviceReady) root.gorelo.refresh(false)
+                onClicked: if (root.serviceReady) root.gorelo.refresh()
               }
 
               PanelActionButton {
@@ -372,11 +372,7 @@ Panel {
           onChanged: function(value) {
             if (!root.serviceReady) return
             root.gorelo.setActiveTab(value)
-            root.cursorIndex = 0
-            root.cursorTicketId = ""
-            root.cursorDeviceId = ""
-            root.expandedTicketId = ""
-            root.expandedDeviceId = ""
+            root.resetCursor(false)
           }
         }
 

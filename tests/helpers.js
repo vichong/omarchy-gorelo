@@ -5,8 +5,12 @@ const vm = require("vm")
 
 function loadModule(name) {
   const file = path.join(__dirname, "..", name)
-  const source = fs.readFileSync(file, "utf8").replace(/^\.pragma library\s*/m, "")
+  let source = fs.readFileSync(file, "utf8").replace(/^\.pragma library\s*/m, "")
   const context = { Number, Math, Date, JSON, Array, Object, String, RegExp, encodeURIComponent, parseInt, isNaN }
+  source = source.replace(/^\.import\s+"([^"]+)"\s+as\s+(\w+)\s*$/gm, (_, dependency, alias) => {
+    context[alias] = loadModule(dependency)
+    return ""
+  })
   vm.createContext(context)
   vm.runInContext(source, context, { filename: file })
   return context

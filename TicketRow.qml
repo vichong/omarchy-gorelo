@@ -1,12 +1,11 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import qs.Ui
 import qs.Commons
-import "Api.js" as Api
 import "Model.js" as Model
 
-// One ticket in the queue. Click or Enter opens it in the browser; the
-// chevron unfolds status, assignment and a private-note field.
-CursorSurface {
+// One ticket in the queue.
+ListRow {
   id: row
 
   required property string ticketId
@@ -26,79 +25,28 @@ CursorSurface {
   required property string lastSummary
   required property string url
 
-  property var gorelo: null
-  property QtObject bar: null
   property bool showAssignee: false
-  property bool expanded: false
-
-  signal expandToggled()
-  signal cursorRequested()
-
-  readonly property bool inputOpen: expansion.item !== null
-    && (expansion.item.dropdownOpen || expansion.item.noteFocused)
-
-  readonly property color fg: bar ? bar.foreground : Color.foreground
-  readonly property string family: bar ? bar.fontFamily : Style.font.family
-  readonly property color dim: Qt.darker(fg, 1.4)
-  readonly property color faint: Qt.darker(fg, 1.8)
+  readonly property bool inputOpen: expansionItem !== null
+    && (expansionItem.dropdownOpen || expansionItem.noteFocused)
   readonly property color urgentColor: bar ? bar.urgent : Color.urgent
+  readonly property color priorityColor: priorityId === 1 ? urgentColor
+    : (priorityId === 2 ? Color.accent : dim)
 
-  readonly property color priorityColor: {
-    if (row.priorityId === 1) return row.urgentColor
-    if (row.priorityId === 2) return Color.accent
-    return row.dim
-  }
-
-  foreground: fg
-  current: expanded
-  implicitHeight: layout.implicitHeight + Style.spacing.rowPaddingX
-
-  function activate() {
-    if (gorelo) gorelo.openTicket(ticketId)
-  }
-
-  readonly property string subtitle: {
+  subtitle: {
     var parts = []
-    if (row.clientName) parts.push(row.clientName)
-    if (row.statusName) parts.push(row.statusName)
-    if (row.showAssignee && row.assigneeName) parts.push(row.assigneeName)
-    if (row.waiting) parts.push("waiting on client")
+    if (clientName) parts.push(clientName)
+    if (statusName) parts.push(statusName)
+    if (showAssignee && assigneeName) parts.push(assigneeName)
+    if (waiting) parts.push("waiting on client")
     return parts.join(" · ")
   }
+  tooltipText: "Open " + displayNumber + " in browser · right-click for actions"
+  chevronTooltip: "Actions"
+  onActivated: if (gorelo) gorelo.openTicket(ticketId)
 
-  MouseArea {
-    id: rowMouse
-    anchors.fill: parent
-    hoverEnabled: true
-    cursorShape: Qt.PointingHandCursor
-    acceptedButtons: Qt.LeftButton | Qt.RightButton
-    onContainsMouseChanged: if (containsMouse) row.cursorRequested()
-    onClicked: function(mouse) {
-      if (mouse.button === Qt.RightButton) row.expandToggled()
-      else row.activate()
-    }
-  }
-
-  PanelToolTip {
-    visible: rowMouse.containsMouse && !row.expanded
-    text: "Open " + row.displayNumber + " in browser · right-click for actions"
-    fontFamily: row.family
-  }
-
-  Column {
-    id: layout
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.verticalCenter: parent.verticalCenter
-    anchors.leftMargin: Style.spacing.xl
-    anchors.rightMargin: Style.spacing.xl
-    spacing: Style.spacing.xs
-
-    // ---------- main line ----------
+  mainLine: Component {
     Item {
-      width: parent.width
       implicitHeight: Math.max(titleText.implicitHeight, priorityText.implicitHeight)
-      height: implicitHeight
 
       Text {
         id: priorityText
@@ -111,7 +59,6 @@ CursorSurface {
         font.family: row.family
         font.pixelSize: Style.font.caption
       }
-
       Text {
         id: numberText
         anchors.left: priorityText.right
@@ -122,7 +69,6 @@ CursorSurface {
         font.family: row.family
         font.pixelSize: Style.font.bodySmall
       }
-
       Text {
         id: titleText
         anchors.left: numberText.right
@@ -138,11 +84,9 @@ CursorSurface {
         font.pixelSize: Style.font.body
         font.weight: row.isUnread ? Font.DemiBold : Font.Normal
       }
-
       Text {
         id: ageText
-        anchors.right: chevron.visible ? chevron.left : parent.right
-        anchors.rightMargin: chevron.visible ? Style.spacing.sm : 0
+        anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
         textFormat: Text.PlainText
         text: row.age
@@ -150,88 +94,55 @@ CursorSurface {
         font.family: row.family
         font.pixelSize: Style.font.caption
       }
-
-      PanelActionButton {
-        id: chevron
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        visible: rowMouse.containsMouse || row.hasCursor || row.expanded
-        iconText: row.expanded ? "󰅃" : "󰅀"   // md-chevron-up / down
-        tooltipText: row.expanded ? "Collapse" : "Actions"
-        foreground: row.dim
-        fontFamily: row.family
-        fontSize: Style.font.iconSmall
-        onClicked: row.expandToggled()
-      }
-    }
-
-    // ---------- detail line ----------
-    Text {
-      width: parent.width
-      visible: row.subtitle !== ""
-      textFormat: Text.PlainText
-      text: row.subtitle
-      elide: Text.ElideRight
-      color: row.dim
-      font.family: row.family
-      font.pixelSize: Style.font.caption
-    }
-
-    Text {
-      width: parent.width
-      visible: row.expanded && row.lastSummary !== ""
-      textFormat: Text.PlainText
-      text: row.lastSummary
-      wrapMode: Text.WordWrap
-      maximumLineCount: 3
-      elide: Text.ElideRight
-      color: row.faint
-      font.family: row.family
-      font.pixelSize: Style.font.caption
-    }
-
-    // ---------- actions ----------
-    Loader {
-      id: expansion
-      width: parent.width
-      active: row.expanded
-      visible: active
-      sourceComponent: actions
     }
   }
 
-  Component {
-    id: actions
-
-    Column {
-      id: actionsColumn
-      spacing: Style.spacing.lg
-      topPadding: Style.spacing.sm
-
+  expansionComponent: Component {
+    // An Item wrapper: a Column must not contain an anchors.fill child (Qt
+    // disables its layout), so the click blocker sits behind the Column.
+    Item {
+      implicitHeight: actionsColumn.implicitHeight
       readonly property bool dropdownOpen: statusDropdown.popupOpen
       readonly property bool noteFocused: noteField.activeFocus
 
-      // Declared first so the controls above keep their own clicks.
+      // Declared first so the controls above keep their own clicks and a
+      // click on empty space does not fall through to "open ticket".
       MouseArea { anchors.fill: parent }
 
+      Column {
+      id: actionsColumn
+      width: parent.width
+      spacing: Style.spacing.lg
+      topPadding: Style.spacing.sm
+
+      Text {
+        width: parent.width
+        visible: row.lastSummary !== ""
+        textFormat: Text.PlainText
+        text: row.lastSummary
+        wrapMode: Text.WordWrap
+        maximumLineCount: 3
+        elide: Text.ElideRight
+        color: row.faint
+        font.family: row.family
+        font.pixelSize: Style.font.caption
+      }
       Row {
         spacing: Style.spacing.lg
-
         Dropdown {
           id: statusDropdown
           showLabel: false
           fontFamily: row.family
           foreground: row.fg
           width: Style.space(170)
-          options: row.gorelo ? row.gorelo.statuses.map(function(s) {
-            return { value: String(s.Id), label: String(s.Name) }
+          options: row.gorelo ? row.gorelo.statuses.map(function(status) {
+            return { value: String(status.Id), label: String(status.Name) }
           }) : []
           value: String(row.statusId)
           onChanged: function(value) {
             if (row.gorelo && value !== String(row.statusId)) row.gorelo.setStatus(row.ticketId, value)
           }
         }
-
         Button {
           visible: row.gorelo && !row.mine && row.gorelo.effectiveTechnicianId > 0
           bordered: true
@@ -240,7 +151,6 @@ CursorSurface {
           fontFamily: row.family
           onClicked: if (row.gorelo) row.gorelo.assignToMe(row.ticketId)
         }
-
         Button {
           bordered: true
           text: "Open"
@@ -249,24 +159,19 @@ CursorSurface {
           onClicked: row.activate()
         }
       }
-
       Row {
         spacing: Style.spacing.lg
         width: actionsColumn.width
-
         TextField {
           id: noteField
           width: parent.width - addNote.width - parent.spacing
           placeholderText: "Private note…"
           foreground: row.fg
+          font.family: row.family
           verticalPadding: Style.spacing.sm
           onAccepted: addNote.clicked()
-          Keys.onEscapePressed: function(event) {
-            noteField.focus = false
-            event.accepted = true
-          }
+          Keys.onEscapePressed: function(event) { noteField.focus = false; event.accepted = true }
         }
-
         Button {
           id: addNote
           bordered: true
@@ -282,6 +187,7 @@ CursorSurface {
             })
           }
         }
+      }
       }
     }
   }

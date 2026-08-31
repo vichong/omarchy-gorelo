@@ -4,6 +4,9 @@ const Api = loadModule("Api.js")
 equal(Api.baseUrl("aue"), "https://api.aue.gorelo.io", "aue base url")
 equal(Api.baseUrl("bogus"), "https://api.usw.gorelo.io", "unknown region falls back to usw")
 assert(Api.isRegion("usw") && !Api.isRegion("eu"), "region validation")
+equal(Api.errorResult("network", "offline"),
+  { ok: false, status: 0, kind: "network", error: "offline", code: "", data: null, pagination: null },
+  "shared error result shape")
 
 equal(Api.query({ PageSize: 100, StatusIds: [1, 2], Empty: "", None: null, List: [] }),
   "?PageSize=100&StatusIds=1%2C2", "query skips empty values and joins lists")

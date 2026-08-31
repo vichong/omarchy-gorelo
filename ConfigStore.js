@@ -1,9 +1,12 @@
 .pragma library
+.import "Api.js" as Api
 
 // Persisted, non-secret configuration. The API key never lives here — it is
 // stored in the system keyring (see CredentialManager.qml).
 
-var REGIONS = ["usw", "aue"]
+var POLL_MIN = 30
+var POLL_MAX = 900
+var POLL_DEFAULT = 90
 
 var KEYS = [
   "region", "demoMode", "technicianId", "technicianName", "pollSeconds", "notify",
@@ -34,8 +37,8 @@ function intList(value) {
 }
 
 function clampPoll(value) {
-  var n = intOr(value, 90)
-  return Math.max(30, Math.min(900, n))
+  var n = intOr(value, POLL_DEFAULT)
+  return Math.max(POLL_MIN, Math.min(POLL_MAX, n))
 }
 
 function httpsTemplate(value, fallback) {
@@ -61,7 +64,7 @@ function parse(text) {
   return {
     error: error,
     config: {
-      region: REGIONS.indexOf(raw.region) !== -1 ? raw.region : "usw",
+      region: Api.isRegion(raw.region) ? raw.region : "usw",
       demoMode: raw.demoMode === true,
       technicianId: Math.max(0, intOr(raw.technicianId, 0)),
       technicianName: typeof raw.technicianName === "string" ? raw.technicianName : "",

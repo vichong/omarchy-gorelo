@@ -7,6 +7,7 @@ import qs.Commons
 import qs.Ui
 import "Api.js" as Api
 import "Model.js" as Model
+import "ConfigStore.js" as ConfigStore
 
 // Quick ticket form and settings. Summoned by the shell, not by IPC — the bar
 // widget owns the "gorelo" target:
@@ -247,10 +248,8 @@ Item {
         if (!root.service || !root.connected) return ""
         var s = root.service
         var status = s.statusNames[String(s.effectiveDefaultStatusId)] || ""
-        var group = ""
-        for (var i = 0; i < s.groups.length; i++) if (s.groups[i].Id === s.effectiveDefaultGroupId) group = String(s.groups[i].Name)
-        var type = ""
-        for (var j = 0; j < s.types.length; j++) if (s.types[j].Id === s.effectiveDefaultTypeId) type = String(s.types[j].Name)
+        var group = s.groupNames[String(s.effectiveDefaultGroupId)] || ""
+        var type = s.typeNames[String(s.effectiveDefaultTypeId)] || ""
         var parts = []
         if (group) parts.push("to " + group)
         if (status) parts.push("as " + status)
@@ -798,10 +797,10 @@ Item {
 
             NumberField {
               label: "Poll every (seconds)"
-              from: 30
-              to: 900
+              from: ConfigStore.POLL_MIN
+              to: ConfigStore.POLL_MAX
               stepSize: 30
-              value: root.service ? root.service.pollSeconds : 90
+              value: root.service ? root.service.pollSeconds : ConfigStore.POLL_DEFAULT
               foreground: root.foreground
               fontFamily: root.family
               onModified: function(value) { if (root.service) root.service.saveConfig({ pollSeconds: value }) }

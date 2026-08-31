@@ -89,6 +89,14 @@ o.bind("SUPER + SHIFT + G", "New Gorelo ticket", "omarchy-shell gorelo newTicket
 - A Gorelo API key: **Settings → Integrations → API keys**, with read/write on
   tickets and read on clients, organization and assets
 
+## Architecture
+
+`Service.qml` composes interchangeable `LiveBackend.qml` and `DemoBackend.qml`
+implementations, plus `Capture.qml`, `BrowserLauncher.qml`, and
+`CredentialManager.qml`. `ListRow.qml` supplies the shared ticket/device row
+chrome; the manifest entry points remain `Service.qml`, `Panel.qml`, and
+`Overlay.qml`.
+
 ## Install
 
 ```bash

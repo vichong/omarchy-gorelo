@@ -34,6 +34,8 @@ equal(ConfigStore.parse(JSON.stringify({ browserDesktop: "/usr/share/application
 equal(ConfigStore.parse(JSON.stringify({ browserDesktop: "chromium" })).config.browserDesktop, "", "relative browser value rejected")
 equal(ConfigStore.parse(JSON.stringify({ browserDesktop: "/tmp/x.desktop\nrm" })).config.browserDesktop, "", "browser value with newline rejected")
 equal(empty.config.browserDesktop, "", "browser defaults to system default")
+equal([ConfigStore.POLL_MIN, ConfigStore.POLL_MAX, ConfigStore.POLL_DEFAULT], [30, 900, 90],
+  "poll bounds are exported for QML controls")
 equal(ConfigStore.parse(JSON.stringify({ deviceUrlTemplate: " https://x/{id}/{name} " })).config.deviceUrlTemplate,
   "https://x/{id}/{name}", "device template is trimmed")
 equal(ConfigStore.parse(JSON.stringify({ ticketUrlTemplate: "http://x/{id}" })).config.ticketUrlTemplate,

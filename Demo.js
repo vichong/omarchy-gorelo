@@ -131,3 +131,150 @@ function demoDevices(now) {
     device(8, "WAYNE-WH-03", "Warehouse Tablet", 4, false, "WAYNE\\warehouse", "Windows 10 IoT", "10.40.2.38", "203.0.113.72", ago(at, 9 * day))
   ]
 }
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+// The demo backend owns one of these values. Every operation returns a fresh
+// store, keeping the state transitions deterministic and node-testable.
+function createStore(now) {
+  var at = typeof now === "number" ? now : Date.now()
+  return {
+    reference: demoReference(),
+    tickets: demoTickets(at),
+    devices: demoDevices(at),
+    showcaseCount: 0,
+    showcased: false
+  }
+}
+
+function ticketIndex(store, id) {
+  var tickets = store && Array.isArray(store.tickets) ? store.tickets : []
+  for (var i = 0; i < tickets.length; i++) if (String(tickets[i].Id) === String(id)) return i
+  return -1
+}
+
+function statusFor(store, id) {
+  var statuses = store && store.reference && Array.isArray(store.reference.statuses)
+    ? store.reference.statuses : []
+  for (var i = 0; i < statuses.length; i++) if (statuses[i].Id === id) return statuses[i]
+  return null
+}
+
+function applyPatch(store, id, patch, now) {
+  var next = clone(store)
+  var index = ticketIndex(next, id)
+  if (index === -1) return { store: next, ticket: null }
+  var target = next.tickets[index]
+  var changes = patch && typeof patch === "object" ? patch : {}
+  for (var key in changes) {
+    if (!Object.prototype.hasOwnProperty.call(changes, key) || changes[key] === undefined) continue
+    if (key === "StatusId") {
+      var statusId = parseInt(changes[key], 10)
+      var status = statusFor(next, statusId)
+      if (status) {
+        target.StatusId = statusId
+        target.Status = { Id: statusId, Name: String(status.Name) }
+      }
+    } else {
+      target[key] = changes[key]
+    }
+  }
+  target.UpdatedOn = new Date(typeof now === "number" ? now : Date.now()).toISOString()
+  target.IsUnread = false
+  target.LastUpdate = { Summary: "Updated by Demo Tech." }
+  return { store: next, ticket: target }
+}
+
+function addComment(store, id, payload, now) {
+  var result = applyPatch(store, id, {}, now)
+  if (result.ticket) {
+    var text = payload && payload.PlainBody !== undefined ? payload.PlainBody
+      : (payload && payload.Body !== undefined ? payload.Body : "")
+    result.ticket.LastUpdate = { Summary: String(text || "") }
+  }
+  return result
+}
+
+function priorityName(id) {
+  return ["None", "Urgent", "High", "Normal", "Low"][id] || "None"
+}
+
+function createTicket(store, body, now) {
+  var next = clone(store)
+  var number = 1000
+  for (var i = 0; i < next.tickets.length; i++) number = Math.max(number, parseInt(next.tickets[i].Number, 10) || 0)
+  number++
+  var status = statusFor(next, body.StatusId) || { Id: body.StatusId, Name: "New" }
+  var created = {
+    Id: "demo-ticket-" + number,
+    Number: number,
+    DisplayNumber: "DEMO-" + number,
+    Title: String(body.Title || ""),
+    Description: String(body.Description || ""),
+    ClientId: body.ClientId,
+    StatusId: body.StatusId,
+    Status: { Id: status.Id, Name: String(status.Name) },
+    GroupId: body.GroupId,
+    TypeId: body.TypeId,
+    LeadAssigneeId: body.LeadAssigneeId || 1,
+    Priority: { Id: body.PriorityId, Name: priorityName(body.PriorityId) },
+    UpdatedOn: new Date(typeof now === "number" ? now : Date.now()).toISOString(),
+    IsUnread: false,
+    IsWaitingOnThem: false,
+    LastUpdate: { Summary: String(body.Description || "Created from the Omarchy demo.") }
+  }
+  next.tickets.push(created)
+  return { store: next, ticket: created }
+}
+
+function contains(value, needle) {
+  return String(value || "").toLowerCase().indexOf(needle) !== -1
+}
+
+function referenceName(list, id) {
+  for (var i = 0; i < list.length; i++) if (list[i].Id === id) return String(list[i].Name || "")
+  return ""
+}
+
+function search(store, query) {
+  var needle = String(query || "").trim().toLowerCase()
+  if (!needle) return { tickets: store.tickets.slice(), devices: store.devices.slice() }
+  var clients = store.reference.clients
+  var users = store.reference.users
+  var tickets = store.tickets.filter(function(item) {
+    var user = null
+    for (var i = 0; i < users.length; i++) if (users[i].Id === item.LeadAssigneeId) user = users[i]
+    return contains(item.DisplayNumber, needle) || contains(item.Number, needle)
+      || contains(item.Title, needle) || contains(referenceName(clients, item.ClientId), needle)
+      || contains(item.Status && item.Status.Name, needle)
+      || contains(user && (String(user.FirstName || "") + " " + String(user.LastName || "")), needle)
+  })
+  var devices = store.devices.filter(function(item) {
+    return contains(item.Name, needle) || contains(item.DisplayName, needle)
+      || contains(item.Description, needle) || contains(item.LastLoggedOnUser, needle)
+      || contains(item.LastLoggedOnUserUpn, needle) || contains(item.SerialNo, needle)
+      || contains(referenceName(clients, item.ClientId), needle)
+  })
+  return { tickets: tickets, devices: devices }
+}
+
+function nextShowcase(store, now) {
+  var next = clone(store)
+  if (next.showcaseCount === 1 && !next.showcased) {
+    for (var i = 0; i < next.tickets.length; i++) {
+      var candidate = next.tickets[i]
+      if (candidate.Priority && candidate.Priority.Id === 1 && candidate.LeadAssigneeId !== 1) {
+        candidate.LeadAssigneeId = 1
+        candidate.UpdatedOn = new Date(typeof now === "number" ? now : Date.now()).toISOString()
+        candidate.IsUnread = true
+        candidate.LastUpdate = { Summary: "Assigned to Demo Tech for immediate follow-up." }
+        next.showcased = true
+        break
+      }
+    }
+  }
+  next.showcaseCount++
+  return next
+}

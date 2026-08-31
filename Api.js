@@ -19,6 +19,19 @@ var PRIORITIES = [
 
 var CONVERSATION_PRIVATE = 2
 
+function errorResult(kind, message) {
+  return { ok: false, status: 0, kind: String(kind || ""), error: String(message || ""),
+           code: "", data: null, pagination: null }
+}
+
+function responseError(kind, message, status, code, data) {
+  var result = errorResult(kind, message)
+  result.status = status
+  result.code = code || ""
+  result.data = data === undefined ? null : data
+  return result
+}
+
 function isRegion(id) {
   for (var i = 0; i < REGIONS.length; i++) if (REGIONS[i].id === id) return true
   return false
@@ -70,31 +83,23 @@ function parseResponse(status, text) {
     ? String(notifications[0].Code) : ""
 
   if (status === 0) {
-    return { ok: false, status: 0, kind: "network", error: "Could not reach the Gorelo API.", code: code, data: null, pagination: null }
+    return responseError("network", "Could not reach the Gorelo API.", 0, code, null)
   }
   if (status === 401 || status === 403) {
-    return {
-      ok: false, status: status, kind: "credential",
-      error: status === 401 ? "The API key was rejected." : "The API key lacks permission for this request.",
-      code: code, data: null, pagination: null
-    }
+    return responseError("credential",
+      status === 401 ? "The API key was rejected." : "The API key lacks permission for this request.",
+      status, code, null)
   }
   if (status === 429) {
-    return { ok: false, status: status, kind: "ratelimit", error: "Rate limited by the Gorelo API.", code: code, data: null, pagination: null }
+    return responseError("ratelimit", "Rate limited by the Gorelo API.", status, code, null)
   }
   if (status < 200 || status >= 300) {
-    return {
-      ok: false, status: status, kind: "api",
-      error: messages.length ? messages.join(" ") : ("Gorelo API error (HTTP " + status + ").") ,
-      code: code, data: body ? body.Data : null, pagination: null
-    }
+    return responseError("api",
+      messages.length ? messages.join(" ") : ("Gorelo API error (HTTP " + status + ")."),
+      status, code, body ? body.Data : null)
   }
   if (!body || typeof body !== "object" || Array.isArray(body) || body.IsSuccess !== true) {
-    return {
-      ok: false, status: status, kind: "protocol",
-      error: "The Gorelo API returned an unexpected response.", code: code,
-      data: null, pagination: null
-    }
+    return responseError("protocol", "The Gorelo API returned an unexpected response.", status, code, null)
   }
   var pagination = body && body.DataContext && body.DataContext.Pagination ? body.DataContext.Pagination : null
   return { ok: true, status: status, kind: "", error: "", code: code, data: body.Data, pagination: pagination }
