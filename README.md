@@ -175,6 +175,21 @@ The plugin never touches any other configuration.
 - The device URL is likewise configurable in Settings with `{id}` and the
   URL-encoded computer `{name}` placeholders.
 
+## Roadmap
+
+- **Remote control from the widget.** Gorelo is building *Connect v2*, a
+  browser-based remote access tool (see the
+  [feature post](https://feedback.gorelo.io/p/desktopcomputer-gorelo-connect-v2)).
+  Once it ships, clicking a device in the search results will start a
+  Connect session — the device click already goes through a single
+  `openDevice()` hook, so this is a URL swap — with the session opened as an
+  Omarchy web-app window that can live on its own workspace. Planned
+  follow-ons: a *Connect* button on tickets with linked devices, an
+  in-session indicator in the bar, and "add a note to the ticket" when the
+  session ends.
+- Ticket rows showing their linked devices (`AgentAssetIds`), once the API
+  exposes them on the list endpoint.
+
 ## Security
 
 - The API key is stored in the system keyring via `secret-tool` and held in
