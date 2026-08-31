@@ -33,7 +33,12 @@ Panel {
   readonly property var counts: serviceReady ? gorelo.mineCounts : ({ total: 0, unread: 0, urgent: 0, waiting: 0 })
   readonly property var allCounts: serviceReady ? gorelo.allCounts : ({ total: 0, unread: 0, urgent: 0, waiting: 0 })
 
+  onRowCountChanged: {
+    cursorIndex = rowCount > 0 ? Math.max(0, Math.min(rowCount - 1, cursorIndex)) : 0
+  }
+
   onOpenedChanged: if (!opened) {
+    if (serviceReady) gorelo.clearSearch()
     expandedTicketId = ""
     cursorActive = false
     cursorIndex = 0
@@ -201,14 +206,32 @@ Panel {
       anchors.fill: parent
       // An open status dropdown owns j/k, arrows, Enter and Escape.
       blocked: root.expandedInputOpen
-      onCloseRequested: root.close()
+      onCloseRequested: {
+        if (searchField.activeFocus && searchField.text !== "") {
+          root.gorelo.clearSearch()
+          keyCatcher.forceActiveFocus()
+        } else if (searchField.activeFocus) {
+          keyCatcher.forceActiveFocus()
+        } else {
+          root.close()
+        }
+      }
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
         if (dy !== 0) root.moveCursor(dy)
         else if (dx !== 0) root.switchTab(dx)
       }
-      onActivateRequested: if (root.cursorActive) root.activateCursor()
+      onActivateRequested: {
+        // The field handles its own Return (onAccepted); ignore it here so the
+        // catcher never opens a ticket while the user is typing a search.
+        if (searchField.activeFocus) return
+        if (root.cursorActive) root.activateCursor()
+      }
+      // `/` focuses the search, as everywhere else.
+      onTextKey: function(key) {
+        if (key === "/" && searchField.visible && !searchField.activeFocus) searchField.forceActiveFocus()
+      }
 
       Column {
         id: column
@@ -223,10 +246,12 @@ Panel {
           fontFamily: root.family
           iconOpacity: root.connected ? 1.0 : 0.55
 
+          // The big mark carries the brand colours; the bar icon stays in the
+          // theme foreground like its neighbours (shell.json `colorful` overrides).
           iconComponent: GoreloIcon {
             iconSize: Style.font.display
             color: root.phase === "error" ? Color.urgent : root.fg
-            colorful: root.colorful
+            colorful: root.phase !== "error"
           }
 
           trailingControl: Component {
@@ -278,6 +303,46 @@ Panel {
             root.gorelo.setActiveTab(value)
             root.cursorIndex = 0
             root.expandedTicketId = ""
+          }
+        }
+
+        Item {
+          width: parent.width
+          height: implicitHeight
+          implicitHeight: searchField.implicitHeight
+          visible: root.connected && !root.gorelo.needsTechnician
+
+          TextField {
+            id: searchField
+            anchors.fill: parent
+            placeholderText: "Search tickets…"
+            foreground: root.fg
+            font.family: root.family
+            rightPadding: clearSearchButton.visible ? Style.space(36) : horizontalPadding
+            onTextChanged: if (root.serviceReady) root.gorelo.setSearchQuery(text)
+            onAccepted: if (root.serviceReady) root.gorelo.runSearch()
+
+            // Typing breaks a `text:` binding, so mirror the service's query by
+            // hand: clearing (button, Escape, popup close) must empty the field.
+            Connections {
+              target: root.gorelo
+              function onSearchQueryChanged() {
+                if (root.gorelo && searchField.text !== root.gorelo.searchQuery) searchField.text = root.gorelo.searchQuery
+              }
+            }
+          }
+
+          PanelActionButton {
+            id: clearSearchButton
+            anchors.right: parent.right
+            anchors.rightMargin: Style.spacing.sm
+            anchors.verticalCenter: parent.verticalCenter
+            visible: searchField.text !== ""
+            iconText: "󰅖"                  // md-close
+            tooltipText: "Clear search"
+            foreground: root.dim
+            fontFamily: root.family
+            onClicked: root.gorelo.clearSearch()
           }
         }
 
@@ -382,9 +447,42 @@ Panel {
         Text {
           textFormat: Text.PlainText
           width: parent.width
+          visible: root.connected && !root.gorelo.needsTechnician && root.gorelo.searching
+          text: "Searching…"
+          color: root.dim
+          font.family: root.family
+          font.pixelSize: Style.font.bodySmall
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          visible: root.connected && !root.gorelo.needsTechnician && root.gorelo.searchError !== ""
+          text: root.serviceReady ? root.gorelo.searchError : ""
+          wrapMode: Text.WordWrap
+          color: Color.urgent
+          font.family: root.family
+          font.pixelSize: Style.font.caption
+        }
+
+        PanelSectionHeader {
+          width: parent.width
+          visible: root.connected && !root.gorelo.needsTechnician
+            && root.gorelo.searchActive && !root.gorelo.searching && root.gorelo.searchError === ""
+          text: root.rowCount > 0 ? "SEARCH RESULTS · " + root.rowCount : "No tickets match"
+          foreground: root.fg
+          fontFamily: root.family
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
           visible: root.connected && !root.gorelo.needsTechnician && root.rowCount === 0
+            && !root.gorelo.searchActive && !root.gorelo.searching
           text: root.gorelo && root.gorelo.firstPollDone
-            ? (root.tab === "mine" ? "Nothing assigned to you. Nice." : "No open tickets.")
+            ? (root.gorelo.searchQuery.trim()
+              ? "No tickets match."
+              : (root.tab === "mine" ? "Nothing assigned to you. Nice." : "No open tickets."))
             : "Loading tickets…"
           wrapMode: Text.WordWrap
           color: root.dim
@@ -406,7 +504,7 @@ Panel {
         Text {
           textFormat: Text.PlainText
           width: parent.width
-          visible: root.connected && root.gorelo.truncated
+          visible: root.connected && !root.gorelo.searchActive && root.gorelo.truncated
           text: "Showing first 500 tickets. Narrow the status filter to see the rest."
           wrapMode: Text.WordWrap
           color: root.dim
@@ -441,7 +539,7 @@ Panel {
                 bar: root.bar
                 fill: root.hoverFill
                 currentFill: root.selectedFill
-                showAssignee: root.tab === "all"
+                showAssignee: root.tab === "all" || root.gorelo.searchActive
                 hasCursor: root.cursorActive && root.cursorIndex === index
                 expanded: root.expandedTicketId === ticketId
                 onCursorRequested: {

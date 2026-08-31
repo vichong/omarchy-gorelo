@@ -26,6 +26,22 @@ equal([rows[1].waiting, rows[1].mine, rows[1].assigneeName], [true, false, "Othe
 equal(rows[2].assigneeName, "Unassigned", "unassigned label")
 equal(rows[0].displayNumber, "#", "display number falls back to number")
 
+const searchable = [
+  { Id: "s1", DisplayNumber: "INC-1042", Number: 1042, Title: "Printer offline", ClientId: 1,
+    LeadAssigneeId: 5, Status: { Id: 1, Name: "In Progress" } },
+  { Id: "s2", Number: 2088, Title: "Replace firewall", ClientId: 2,
+    LeadAssigneeId: 9, Status: { Id: 2, Name: "Waiting" } }
+]
+equal(Model.filterTickets(searchable, ctx, "INC-1042").map(t => t.Id), ["s1"], "display number matches with prefix")
+equal(Model.filterTickets(searchable, ctx, "1042").map(t => t.Id), ["s1"], "ticket number matches without prefix")
+equal(Model.filterTickets(searchable, ctx, "printer").map(t => t.Id), ["s1"], "title substring matches")
+equal(Model.filterTickets(searchable, ctx, "globex").map(t => t.Id), ["s2"], "client name matches")
+equal(Model.filterTickets(searchable, ctx, "in progress").map(t => t.Id), ["s1"], "status name matches")
+equal(Model.filterTickets(searchable, ctx, "other").map(t => t.Id), ["s2"], "assignee name matches")
+equal(Model.filterTickets(searchable, ctx, "gLoBeX").map(t => t.Id), ["s2"], "matching is case-insensitive")
+equal(Model.filterTickets(searchable, ctx, ""), searchable, "empty query returns everything")
+equal(Model.filterTickets(searchable, ctx, "   \t"), searchable, "whitespace-only query returns everything")
+
 equal(Model.counts(tickets.slice(0, 3)), { total: 3, unread: 1, urgent: 1, waiting: 1 }, "counts")
 
 const previous = Model.indexOf([tickets[0], tickets[1]])

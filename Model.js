@@ -96,6 +96,51 @@ function buildRows(tickets, ctx, urlFn) {
   return rows
 }
 
+function matchesQuery(rowOrTicket, ctx, query) {
+  var needle = String(query || "").trim().toLowerCase()
+  if (!needle) return true
+  if (!rowOrTicket || typeof rowOrTicket !== "object") return false
+  ctx = ctx || {}
+
+  var item = rowOrTicket
+  var isRow = item.ticketId !== undefined
+  var clientId = item.ClientId === undefined ? "" : String(item.ClientId)
+  var assigneeId = item.LeadAssigneeId === undefined ? "" : String(item.LeadAssigneeId)
+  var statusId = item.Status && item.Status.Id !== undefined
+    ? String(item.Status.Id)
+    : (item.StatusId === undefined ? "" : String(item.StatusId))
+  var number = isRow ? "" : String(item.Number || "")
+  var displayNumber = isRow
+    ? String(item.displayNumber || "")
+    : String(item.DisplayNumber || (number ? "#" + number : ""))
+  var fields = [
+    displayNumber,
+    number,
+    isRow ? item.title : item.Title,
+    isRow ? item.clientName : (item.ClientName || (item.Client && item.Client.Name)
+      || (ctx.clientNames && ctx.clientNames[clientId])),
+    isRow ? item.statusName : ((item.Status && item.Status.Name)
+      || (ctx.statusNames && ctx.statusNames[statusId])),
+    isRow ? item.assigneeName : (item.AssigneeName || (item.LeadAssignee && item.LeadAssignee.Name)
+      || (ctx.userNames && ctx.userNames[assigneeId]))
+  ]
+  for (var i = 0; i < fields.length; i++) {
+    if (String(fields[i] || "").toLowerCase().indexOf(needle) !== -1) return true
+  }
+  return false
+}
+
+function filterTickets(tickets, ctx, query) {
+  if (!Array.isArray(tickets)) return []
+  var needle = String(query || "").trim()
+  if (!needle) return tickets.slice()
+  var out = []
+  for (var i = 0; i < tickets.length; i++) {
+    if (matchesQuery(tickets[i], ctx || {}, needle)) out.push(tickets[i])
+  }
+  return out
+}
+
 function counts(tickets) {
   var out = { total: 0, unread: 0, urgent: 0, waiting: 0 }
   if (!Array.isArray(tickets)) return out

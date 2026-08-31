@@ -23,6 +23,8 @@ desk, not a managed endpoint.
   last update. Each row shows number, title, client, status, age, unread and
   "waiting on client" state. Click or Enter opens the ticket in the browser;
   unfold a row for a status dropdown, *Assign to me* and a private note.
+  Its search bar filters the loaded queue as you type; press Enter to search
+  across the server instead, including closed tickets.
 - **Notifications** — when a ticket is assigned to you, or one of yours gets
   an unread update. Click the notification to open the ticket. Threshold by
   priority.
@@ -39,8 +41,9 @@ desk, not a managed endpoint.
 ## Keyboard
 
 The queue follows the same conventions as every Omarchy panel: `↑`/`↓` (or
-`j`/`k`) move, `←`/`→` switch tab, `enter` opens the ticket, `esc` closes,
-`tab` moves to the next bar panel. Everything else is a button.
+`j`/`k`) move, `←`/`→` switch tab, `enter` opens the ticket, `/` focuses the
+search box, `esc` clears the search or closes, `tab` moves to the next bar
+panel. Everything else is a button.
 
 ## Scripting
 
@@ -86,7 +89,7 @@ omarchy plugin enable io.github.vichong.gorelo right
 
 ## Setup
 
-Click the gear in the popup header, or press `s` with it open. From a
+Click the gear in the popup header. From a
 terminal: `omarchy-shell gorelo settings`.
 
 1. Pick your **region** — the one your Gorelo tenancy was created in.

@@ -152,7 +152,12 @@ QtObject {
 
   function setActiveTab(tab) {
     var next = tab === "all" ? "all" : "mine"
-    if (next === root.activeTab) return
+    var changed = next !== root.activeTab
+    root.leaveSearch()
+    if (!changed) {
+      root.rebuildRows()
+      return
+    }
     root.activeTab = next
     root.rebuildRows()
     tabSaveDebounce.restart()
@@ -296,6 +301,12 @@ QtObject {
 
   property var mineTickets: []
   property var allTickets: []
+  property string searchQuery: ""
+  property bool searchActive: false
+  property bool searching: false
+  property var searchResults: []
+  property string searchError: ""
+  property int searchSerial: 0
   property var mineIndex: ({})
   property bool firstPollDone: false
   property bool polling: false
@@ -337,6 +348,12 @@ QtObject {
     root.referenceLoaded = false
     root.mineTickets = []
     root.allTickets = []
+    root.searchQuery = ""
+    root.searchActive = false
+    root.searching = false
+    root.searchResults = []
+    root.searchError = ""
+    root.searchSerial++
     root.mineIndex = Object.create(null)
     root.firstPollDone = false
     root.polling = false
@@ -410,6 +427,7 @@ QtObject {
     root.pollRequested = false
     root.pendingActions = 0
     root.creating = false
+    root.searching = false
     root.cancelUpload()
     root.generation++
   }
@@ -673,17 +691,86 @@ QtObject {
     return Api.ticketUrl(root.ticketUrlTemplate, ticket)
   }
 
+  property Timer searchDebounce: Timer {
+    interval: 120
+    onTriggered: root.rebuildRows()
+  }
+
+  function leaveSearch() {
+    root.searchSerial++
+    root.searchActive = false
+    root.searching = false
+    root.searchResults = []
+    root.searchError = ""
+  }
+
+  function setSearchQuery(text) {
+    var next = String(text || "")
+    if (next === root.searchQuery) return
+    root.searchQuery = next
+    root.searchSerial++
+    root.searching = false
+    root.searchError = ""
+    if (!next.trim()) {
+      root.searchActive = false
+      root.searchResults = []
+      searchDebounce.stop()
+      root.rebuildRows()
+      return
+    }
+    searchDebounce.restart()
+  }
+
+  function runSearch() {
+    var query = root.searchQuery.trim()
+    if (!query || !root.connected) return false
+    searchDebounce.stop()
+    var gen = root.generation
+    var serial = ++root.searchSerial
+    root.searchActive = true
+    root.searching = true
+    root.searchResults = []
+    root.searchError = ""
+    root.rebuildRows()
+    var params = { Query: query, PageSize: 50, SortBy: "updatedOn", SortOrder: "desc" }
+    root.request("GET", "/v1/tickets" + Api.query(params), null, function(result) {
+      if (gen !== root.generation || serial !== root.searchSerial) return
+      root.searching = false
+      if (!result.ok) {
+        root.searchError = result.error
+        root.searchResults = []
+      } else {
+        root.searchError = ""
+        root.searchResults = Api.validTicketList(result.data)
+      }
+      root.rebuildRows()
+    })
+    return true
+  }
+
+  function clearSearch() {
+    searchDebounce.stop()
+    root.leaveSearch()
+    root.searchQuery = ""
+    root.rebuildRows()
+  }
+
   function rebuildRows() {
-    var source = root.activeTab === "all" ? root.allTickets : root.mineTickets
-    var list = Model.buildRows(source, root.rowContext(), root.urlFor)
+    var source = root.searchActive
+      ? root.searchResults
+      : (root.activeTab === "all" ? root.allTickets : root.mineTickets)
+    var ctx = root.rowContext()
+    var filtered = Model.filterTickets(source, ctx, root.searchQuery)
+    var list = Model.buildRows(filtered, ctx, root.urlFor)
     root.rows.clear()
     for (var i = 0; i < list.length; i++) root.rows.append(list[i])
   }
 
   function ticketFor(ticketId) {
     var id = String(ticketId)
-    for (var i = 0; i < root.allTickets.length; i++) if (String(root.allTickets[i].Id) === id) return root.allTickets[i]
-    for (var j = 0; j < root.mineTickets.length; j++) if (String(root.mineTickets[j].Id) === id) return root.mineTickets[j]
+    for (var i = 0; i < root.searchResults.length; i++) if (String(root.searchResults[i].Id) === id) return root.searchResults[i]
+    for (var j = 0; j < root.allTickets.length; j++) if (String(root.allTickets[j].Id) === id) return root.allTickets[j]
+    for (var k = 0; k < root.mineTickets.length; k++) if (String(root.mineTickets[k].Id) === id) return root.mineTickets[k]
     return null
   }
 
@@ -763,10 +850,6 @@ QtObject {
     var ticket = root.ticketFor(ticketId)
     var url = ticket ? root.urlFor(ticket) : Api.ticketUrl(root.ticketUrlTemplate, { Id: String(ticketId) })
     return root.openUrl(url)
-  }
-
-  function openWebApp() {
-    root.openUrl("https://app.gorelo.io/")
   }
 
   function patchTicket(ticketId, patch, label, callback) {
