@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "gorelo",
+  "name": "Gorelo",
+  "version": "0.1.0",
+  "author": "Vic Hong",
+  "license": "MIT",
+  "description": "Your Gorelo ticket queue in the Omarchy bar, plus a quick ticket overlay.",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "overlay"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "Panel.qml",
+    "overlay": "Overlay.qml"
+  },
+  "barWidget": {
+    "displayName": "Gorelo",
+    "description": "Tickets assigned to you, unread and urgent at a glance.",
+    "category": "Work",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

@@ -1,0 +1,168 @@
+.pragma library
+
+// Pure helpers for the Gorelo public API (https://help.gorelo.io/api-overview).
+// Nothing here performs I/O; Service.qml owns the XMLHttpRequest calls.
+
+var REGIONS = [
+  { id: "usw", label: "United States", host: "https://api.usw.gorelo.io" },
+  { id: "aue", label: "Australia", host: "https://api.aue.gorelo.io" }
+]
+
+// Public priority scale: None=0, Urgent=1, High=2, Normal=3, Low=4.
+var PRIORITIES = [
+  { id: 1, name: "Urgent" },
+  { id: 2, name: "High" },
+  { id: 3, name: "Normal" },
+  { id: 4, name: "Low" },
+  { id: 0, name: "None" }
+]
+
+var CONVERSATION_PRIVATE = 2
+
+function isRegion(id) {
+  for (var i = 0; i < REGIONS.length; i++) if (REGIONS[i].id === id) return true
+  return false
+}
+
+function baseUrl(region) {
+  for (var i = 0; i < REGIONS.length; i++) if (REGIONS[i].id === region) return REGIONS[i].host
+  return REGIONS[0].host
+}
+
+function regionLabel(region) {
+  for (var i = 0; i < REGIONS.length; i++) if (REGIONS[i].id === region) return REGIONS[i].label
+  return region
+}
+
+// { PageSize: 100, StatusIds: [1,2] } -> "?PageSize=100&StatusIds=1%2C2"
+function query(params) {
+  var parts = []
+  for (var key in params) {
+    var value = params[key]
+    if (value === undefined || value === null || value === "") continue
+    if (Array.isArray(value)) {
+      if (value.length === 0) continue
+      value = value.join(",")
+    }
+    parts.push(encodeURIComponent(key) + "=" + encodeURIComponent(String(value)))
+  }
+  return parts.length ? "?" + parts.join("&") : ""
+}
+
+function priorityName(id) {
+  for (var i = 0; i < PRIORITIES.length; i++) if (PRIORITIES[i].id === id) return PRIORITIES[i].name
+  return "None"
+}
+
+// Classify an HTTP outcome. `text` is the raw body; the API wraps every
+// response in { IsSuccess, Data, DataContext, Notifications }.
+function parseResponse(status, text) {
+  var body = null
+  try { body = text ? JSON.parse(text) : null } catch (e) { body = null }
+
+  var notifications = body && Array.isArray(body.Notifications) ? body.Notifications : []
+  var messages = []
+  for (var i = 0; i < notifications.length; i++) {
+    var n = notifications[i]
+    if (n && n.Message) messages.push(String(n.Message))
+  }
+
+  if (status === 0) {
+    return { ok: false, status: 0, kind: "network", error: "Could not reach the Gorelo API.", data: null, pagination: null }
+  }
+  if (status === 401 || status === 403) {
+    return {
+      ok: false, status: status, kind: "credential",
+      error: status === 401 ? "The API key was rejected." : "The API key lacks permission for this request.",
+      data: null, pagination: null
+    }
+  }
+  if (status === 429) {
+    return { ok: false, status: status, kind: "ratelimit", error: "Rate limited by the Gorelo API.", data: null, pagination: null }
+  }
+  if (status < 200 || status >= 300 || (body && body.IsSuccess === false)) {
+    return {
+      ok: false, status: status, kind: "api",
+      error: messages.length ? messages.join(" ") : ("Gorelo API error (HTTP " + status + ").") ,
+      data: body ? body.Data : null, pagination: null
+    }
+  }
+  var pagination = body && body.DataContext && body.DataContext.Pagination ? body.DataContext.Pagination : null
+  return { ok: true, status: status, kind: "", error: "", data: body ? body.Data : null, pagination: pagination }
+}
+
+function nextCursor(pagination) {
+  if (!pagination || pagination.HasMore !== true) return ""
+  return pagination.NextCursor ? String(pagination.NextCursor) : ""
+}
+
+// Names are how technicians recognise the closed states; the public API does
+// not say which base status a status maps to.
+var CLOSED_NAME = /clos|resolv|cancel|complet|done|reject/i
+
+function isClosedStatus(status) {
+  return !!(status && CLOSED_NAME.test(String(status.Name || "")))
+}
+
+function defaultStatusIds(statuses) {
+  var out = []
+  if (!Array.isArray(statuses)) return out
+  for (var i = 0; i < statuses.length; i++) {
+    if (!isClosedStatus(statuses[i]) && Number.isInteger(statuses[i].Id)) out.push(statuses[i].Id)
+  }
+  return out
+}
+
+function sortStatuses(statuses) {
+  var list = Array.isArray(statuses) ? statuses.slice() : []
+  list.sort(function(a, b) { return (a.SortOrder || 0) - (b.SortOrder || 0) })
+  return list
+}
+
+// Prototype-free map so a server-controlled id can never collide with
+// Object.prototype names.
+function nameMap(list, labelFn) {
+  var map = Object.create(null)
+  if (!Array.isArray(list)) return map
+  for (var i = 0; i < list.length; i++) {
+    var item = list[i]
+    if (!item || item.Id === undefined || item.Id === null) continue
+    map[String(item.Id)] = labelFn ? labelFn(item) : String(item.Name || "")
+  }
+  return map
+}
+
+function userDisplayName(user) {
+  if (!user) return ""
+  var name = [user.FirstName, user.LastName].filter(function(p) { return !!p }).join(" ").trim()
+  return name || String(user.Email || "") || ("User " + user.Id)
+}
+
+function ticketUrl(template, ticket) {
+  if (!ticket) return ""
+  var t = template || "https://app.gorelo.io/Ticket/{id}"
+  return t
+    .replace("{id}", encodeURIComponent(String(ticket.Id || "")))
+    .replace("{number}", encodeURIComponent(String(ticket.Number || "")))
+    .replace("{displayNumber}", encodeURIComponent(String(ticket.DisplayNumber || "")))
+}
+
+// Comment bodies are HTML; a note typed in the panel is plain text.
+function escapeHtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/\n/g, "<br>")
+}
+
+function validTicketList(data) {
+  if (!Array.isArray(data)) return []
+  var out = []
+  for (var i = 0; i < data.length; i++) {
+    var t = data[i]
+    if (t && typeof t === "object" && t.Id !== undefined && t.Id !== null) out.push(t)
+  }
+  return out
+}

@@ -1,0 +1,144 @@
+# Gorelo for Omarchy
+
+Your [Gorelo](https://www.gorelo.io/) ticket queue in the Omarchy bar, plus a
+quick-ticket overlay that can attach a screenshot.
+
+Quickshell plugin for **Omarchy 4**, for technicians who run Omarchy on their
+own workstation. Gorelo has no Linux agent — this is the tech's side of the
+desk, not a managed endpoint.
+
+> Not affiliated with or endorsed by Gorelo.
+
+## What you get
+
+- **Bar widget** — the Gorelo mark with a count of open tickets assigned to
+  you. Accent-coloured when something is unread, urgent-coloured when an
+  Urgent/High ticket is in your queue. Left click opens the queue, right
+  click opens a new ticket, middle click refreshes.
+- **Queue popup** — *Mine* and *All open* tabs, sorted urgent-first then by
+  last update. Each row shows number, title, client, status, age, unread and
+  "waiting on client" state. Click or Enter opens the ticket in the browser;
+  unfold a row for a status dropdown, *Assign to me* and a private note.
+- **Notifications** — when a ticket is assigned to you, or one of yours gets
+  an unread update. Click the notification to open the ticket. Threshold by
+  priority.
+- **New ticket overlay** — client (searchable), title, priority, description
+  and an *Attach a region…* button that hides the overlay, runs the Omarchy
+  region screenshot, and comes back with the file attached. The ticket lands
+  in your default group/status/type, assigned to you, and opens in the
+  browser.
+- **Settings overlay** — region (United States / Australia), API key, which
+  technician you are, new-ticket defaults, statuses shown, poll interval,
+  notification threshold, ticket URL template.
+
+## Keyboard
+
+With the queue open: `j`/`k` or `↑`/`↓` move, `←`/`→` switch tab, `enter`
+opens the ticket, `e` unfolds actions, `a` assigns it to you, `n` new ticket,
+`s` settings, `r` refresh, `w` opens the Gorelo web app, `esc` closes, `tab`
+moves to the next bar panel.
+
+## Scripting
+
+The widget is reachable over the shell's IPC, so a keybind can drive it:
+
+```bash
+omarchy-shell gorelo toggle          # open/close the queue
+omarchy-shell gorelo newTicket       # quick ticket overlay
+omarchy-shell gorelo settings
+omarchy-shell gorelo refresh
+omarchy-shell gorelo ticket <id>     # open a ticket in the browser
+omarchy-shell gorelo tab all         # or: mine
+omarchy-shell gorelo status          # redacted state line, for bug reports
+```
+
+Example `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER SHIFT, G", "exec", "omarchy-shell gorelo newTicket", "New Gorelo ticket")
+```
+
+## Requirements
+
+- Omarchy 4 (`schemaVersion: 1` plugin API)
+- `secret-tool` (libsecret) with a running keyring daemon
+- `curl` (screenshot uploads only)
+- A Gorelo API key: **Settings → Integrations → API keys**, with read/write on
+  tickets and read on clients, contacts and organization
+
+## Install
+
+```bash
+omarchy plugin add https://github.com/vichong/omarchy-gorelo.git --enable
+```
+
+For local development, symlink the checkout instead:
+
+```bash
+ln -sfn "$PWD" ~/.config/omarchy/plugins/gorelo
+omarchy restart shell
+omarchy plugin enable gorelo right
+```
+
+## Setup
+
+Click the gear in the popup header, or press `s` with it open. From a
+terminal: `omarchy-shell gorelo settings`.
+
+1. Pick your **region** — the one your Gorelo tenancy was created in.
+   US keys talk to `api.usw.gorelo.io`, Australian keys to
+   `api.aue.gorelo.io`. Keys are stored per region.
+2. Paste the **API key** and press Connect.
+3. Pick **yourself** under *You*. The key is organisation-wide, so the queue
+   needs to know whose tickets to show.
+4. Set the **new ticket defaults** — Gorelo requires a status, group and type
+   on every ticket.
+
+Optionally adjust which statuses count as "open" (by default anything whose
+name doesn't look closed, resolved or cancelled), the poll interval, and the
+notification threshold.
+
+## Widget settings
+
+Per-instance options live on the widget's entry in
+`~/.config/omarchy/shell.json`:
+
+```json
+{ "id": "gorelo", "colorful": true, "showCount": true }
+```
+
+`colorful` paints the mark in Gorelo's brand palette instead of the theme
+foreground; `showCount` hides the number next to the mark when false.
+
+## Limits of the public API
+
+- No webhooks or streaming; the plugin polls (90 s by default, backing off
+  on rate limits).
+- Comments posted through the API are recorded as API-authored, with your
+  name attached. The plugin only ever posts *private* notes.
+- Time entries cannot be created through the API, so there is no timer.
+- The ticket URL is a template (`{id}`, `{number}`, `{displayNumber}`) because
+  the web app's path isn't documented; change it in Settings if yours differs.
+
+## Security
+
+- The API key is stored in the system keyring via `secret-tool` and held in
+  memory by the shell. It is never written to `config.json`, logs, IPC output
+  or process arguments — the screenshot upload hands it to `curl` through a
+  config file on stdin.
+- Everything the API returns is rendered as plain text.
+- `config.json` (in `~/.config/omarchy/gorelo/`, or the checkout when
+  symlinked) holds non-secret settings only and is git-ignored.
+
+## Tests
+
+```bash
+node tests/test_api.js
+node tests/test_model.js
+node tests/test_config.js
+omarchy plugin validate .
+```
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
