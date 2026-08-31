@@ -66,29 +66,38 @@ function parseResponse(status, text) {
     var n = notifications[i]
     if (n && n.Message) messages.push(String(n.Message))
   }
+  var code = notifications.length && notifications[0] && notifications[0].Code !== undefined
+    ? String(notifications[0].Code) : ""
 
   if (status === 0) {
-    return { ok: false, status: 0, kind: "network", error: "Could not reach the Gorelo API.", data: null, pagination: null }
+    return { ok: false, status: 0, kind: "network", error: "Could not reach the Gorelo API.", code: code, data: null, pagination: null }
   }
   if (status === 401 || status === 403) {
     return {
       ok: false, status: status, kind: "credential",
       error: status === 401 ? "The API key was rejected." : "The API key lacks permission for this request.",
-      data: null, pagination: null
+      code: code, data: null, pagination: null
     }
   }
   if (status === 429) {
-    return { ok: false, status: status, kind: "ratelimit", error: "Rate limited by the Gorelo API.", data: null, pagination: null }
+    return { ok: false, status: status, kind: "ratelimit", error: "Rate limited by the Gorelo API.", code: code, data: null, pagination: null }
   }
-  if (status < 200 || status >= 300 || (body && body.IsSuccess === false)) {
+  if (status < 200 || status >= 300) {
     return {
       ok: false, status: status, kind: "api",
       error: messages.length ? messages.join(" ") : ("Gorelo API error (HTTP " + status + ").") ,
-      data: body ? body.Data : null, pagination: null
+      code: code, data: body ? body.Data : null, pagination: null
+    }
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body) || body.IsSuccess !== true) {
+    return {
+      ok: false, status: status, kind: "protocol",
+      error: "The Gorelo API returned an unexpected response.", code: code,
+      data: null, pagination: null
     }
   }
   var pagination = body && body.DataContext && body.DataContext.Pagination ? body.DataContext.Pagination : null
-  return { ok: true, status: status, kind: "", error: "", data: body ? body.Data : null, pagination: pagination }
+  return { ok: true, status: status, kind: "", error: "", code: code, data: body.Data, pagination: pagination }
 }
 
 function nextCursor(pagination) {

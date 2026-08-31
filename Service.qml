@@ -113,17 +113,28 @@ QtObject {
     if (first || regionChanged) {
       // Supersede every in-flight request before dropping the key: a late
       // response for the old region must not land in the new one's state.
-      root.generation++
+      root.supersedeRequests()
       root.apiKey = ""
       root.resetData()
       root.phase = "idle"
       root.lastError = ""
       root.lastErrorKind = ""
-      if (!credentials.busy) credentials.lookup(root.region)
+      root.lastErrorCode = ""
+      var pending = root.pendingConnection
+      if (pending && pending.region === root.region && pending.key) {
+        root.pendingConnection = null
+        root.phase = "connecting"
+        credentials.store(pending.key, pending.region)
+        pending.key = ""
+      } else if (!credentials.busy) {
+        credentials.lookup(root.region)
+      }
     } else if (filterChanged && root.connected) {
       root.mineIndex = Object.create(null)
       root.firstPollDone = false
-      root.poll()
+      root.pollSerial++
+      root.pollRequested = true
+      if (!root.polling) root.poll()
     } else if (tabChanged) {
       root.rebuildRows()
     }
@@ -148,10 +159,16 @@ QtObject {
   property string apiKey: ""
   readonly property bool hasKey: apiKey !== ""
   readonly property bool credentialBusy: credentials.busy
+  property var pendingConnection: null
 
   property CredentialManager credentials: CredentialManager {
     onKeyReady: function(key, region) {
       if (region !== root.region) return
+      if (root.keyHasUnsupportedCharacters(key)) {
+        root.apiKey = ""
+        root.fail("config", "The stored API key contains unsupported quotes, backslashes, or control characters.", "")
+        return
+      }
       root.apiKey = key
       root.connect()
     }
@@ -161,35 +178,54 @@ QtObject {
       root.phase = "idle"
       root.lastError = ""
       root.lastErrorKind = ""
+      root.lastErrorCode = ""
     }
     onCleared: function(region) {
       if (region !== root.region) return
       root.apiKey = ""
-      root.generation++
+      root.supersedeRequests()
       root.resetData()
       root.phase = "idle"
       root.lastError = ""
       root.lastErrorKind = ""
+      root.lastErrorCode = ""
     }
     onFailed: function(message, region) {
       if (region && region !== root.region) return
       root.phase = "error"
       root.lastError = message
       root.lastErrorKind = "credential"
+      root.lastErrorCode = ""
     }
   }
 
   // Settings → Connect. A blank key keeps the stored one for that region.
+  function keyHasUnsupportedCharacters(key) {
+    return /["\\\x00-\x1f\x7f]/.test(String(key || ""))
+  }
+
   function applyConnection(region, key) {
     if (!Api.isRegion(region)) return false
     if (root.credentialBusy) {
       root.lastError = "Wait for the current keyring operation to finish."
+      root.lastErrorKind = "credential"
+      root.lastErrorCode = ""
       return false
     }
-    var trimmed = String(key || "").trim()
-    if (region !== root.region) {
-      // applyConfig handles the region switch (drops the key, looks the new
-      // region's key up). A freshly typed key is stored right after.
+    var switchingRegion = region !== root.region
+    var raw = String(key || "")
+    if (raw && root.keyHasUnsupportedCharacters(raw)) {
+      root.phase = "error"
+      root.lastError = "The API key contains unsupported quotes, backslashes, or control characters."
+      root.lastErrorKind = "config"
+      root.lastErrorCode = ""
+      return false
+    }
+    var trimmed = raw.trim()
+    if (switchingRegion) {
+      // applyConfig owns the region switch. When a key was supplied it stores
+      // that key directly and deliberately does not start a competing lookup.
+      root.pendingConnection = trimmed ? { region: region, key: trimmed } : null
       root.saveConfig({ region: region, technicianId: 0, technicianName: "",
                         statusIds: [], defaultStatusId: 0, defaultGroupId: 0,
                         defaultTypeId: 0, defaultClientId: 0 })
@@ -198,8 +234,8 @@ QtObject {
       root.phase = "connecting"
       root.lastError = ""
       root.lastErrorKind = ""
-      // Storing replaces the pending lookup's answer: keyReady fires from
-      // the store and connect() runs with the new key.
+      root.lastErrorCode = ""
+      if (switchingRegion) return true
       return credentials.store(trimmed, region)
     }
     if (!root.hasKey && !root.credentialBusy) credentials.lookup(region)
@@ -210,6 +246,8 @@ QtObject {
   function removeConnection() {
     if (root.credentialBusy) {
       root.lastError = "Wait for the current keyring operation to finish."
+      root.lastErrorKind = "credential"
+      root.lastErrorCode = ""
       return
     }
     credentials.clear(root.region)
@@ -220,8 +258,9 @@ QtObject {
   // idle | connecting | connected | error
   property string phase: "idle"
   property string lastError: ""
-  // credential | network | ratelimit | api | config | ""
+  // credential | network | ratelimit | api | protocol | config | ""
   property string lastErrorKind: ""
+  property string lastErrorCode: ""
   property int generation: 0
   readonly property bool configured: hasKey
   readonly property bool connected: phase === "connected"
@@ -242,6 +281,11 @@ QtObject {
   property var mineIndex: ({})
   property bool firstPollDone: false
   property bool polling: false
+  property bool pollRequested: false
+  property int pollSerial: 0
+  property bool mineTruncated: false
+  property bool allTruncated: false
+  readonly property bool truncated: activeTab === "all" ? allTruncated : mineTruncated
   property string lastPolledAt: ""
   property int pollBackoff: 0
   property int ticketRevision: 0
@@ -259,6 +303,7 @@ QtObject {
     var parts = [c.total + (c.total === 1 ? " ticket" : " tickets")]
     if (c.unread) parts.push(c.unread + " unread")
     if (c.urgent) parts.push(c.urgent + " urgent")
+    if (root.mineTruncated) parts.push("showing first 500")
     return parts.join(" · ")
   }
 
@@ -277,14 +322,18 @@ QtObject {
     root.mineIndex = Object.create(null)
     root.firstPollDone = false
     root.polling = false
+    root.pollRequested = false
+    root.mineTruncated = false
+    root.allTruncated = false
     root.pollBackoff = 0
     root.rows.clear()
     root.ticketRevision++
   }
 
-  function fail(kind, message) {
+  function fail(kind, message, code) {
     root.lastError = message
     root.lastErrorKind = kind
+    root.lastErrorCode = code || ""
     if (kind === "credential" || kind === "config") {
       root.phase = "error"
       root.polling = false
@@ -304,16 +353,14 @@ QtObject {
     running: root.inflight.length > 0
     onTriggered: {
       var now = Date.now()
-      var keep = []
-      for (var i = 0; i < root.inflight.length; i++) {
-        var entry = root.inflight[i]
+      var requests = root.inflight.slice()
+      for (var i = 0; i < requests.length; i++) {
+        var entry = requests[i]
         if (now - entry.started > root.requestTimeoutMs) {
+          entry.complete(root.networkError("The Gorelo API request timed out."))
           try { entry.xhr.abort() } catch (e) {}
-        } else {
-          keep.push(entry)
         }
       }
-      root.inflight = keep
     }
   }
 
@@ -325,37 +372,74 @@ QtObject {
     root.inflight = keep
   }
 
+  function networkError(message) {
+    return { ok: false, status: 0, kind: "network", error: message,
+             code: "", data: null, pagination: null }
+  }
+
+  // The only generation bump. It also releases every owner-side busy flag,
+  // so dropped callbacks can never wedge polling, actions or ticket creation.
+  function supersedeRequests() {
+    var requests = root.inflight.slice()
+    for (var i = 0; i < requests.length; i++) {
+      var entry = requests[i]
+      entry.superseded = true
+      entry.complete(root.networkError("Request superseded."))
+      try { entry.xhr.abort() } catch (e) {}
+    }
+    root.inflight = []
+    root.polling = false
+    root.pollRequested = false
+    root.pendingActions = 0
+    root.creating = false
+    root.cancelUpload()
+    root.generation++
+  }
+
   // callback(result) where result is Api.parseResponse's shape. Responses
   // from a superseded generation (region switch, key removal) are dropped.
   function request(method, path, body, callback) {
     if (!root.hasKey) {
-      callback({ ok: false, status: 0, kind: "credential", error: "No API key configured.", data: null, pagination: null })
+      callback({ ok: false, status: 0, kind: "credential", error: "No API key configured.",
+                 code: "", data: null, pagination: null })
       return
     }
     var gen = root.generation
     var xhr = new XMLHttpRequest()
     var url = Api.baseUrl(root.region) + path
+    var entry = { xhr: xhr, started: Date.now(), done: false, superseded: false, complete: null }
+    function complete(result) {
+      if (entry.done) return
+      entry.done = true
+      root.forgetRequest(xhr)
+      if (entry.superseded || gen !== root.generation) return
+      callback(result)
+    }
+    entry.complete = complete
     xhr.onreadystatechange = function() {
       if (xhr.readyState !== XMLHttpRequest.DONE) return
-      root.forgetRequest(xhr)
-      if (gen !== root.generation) return
-      callback(Api.parseResponse(xhr.status, xhr.responseText))
-    }
-    xhr.open(method, url)
-    xhr.setRequestHeader("X-API-Key", root.apiKey)
-    xhr.setRequestHeader("Accept", "application/json")
-    if (body !== null && body !== undefined) {
-      xhr.setRequestHeader("Content-Type", "application/json")
-      xhr.send(JSON.stringify(body))
-    } else {
-      xhr.send()
+      complete(Api.parseResponse(xhr.status, xhr.responseText))
     }
     var list = root.inflight.slice()
-    list.push({ xhr: xhr, started: Date.now() })
+    list.push(entry)
     root.inflight = list
+    try {
+      xhr.open(method, url)
+      xhr.setRequestHeader("X-API-Key", root.apiKey)
+      xhr.setRequestHeader("Accept", "application/json")
+      if (body !== null && body !== undefined) {
+        xhr.setRequestHeader("Content-Type", "application/json")
+        xhr.send(JSON.stringify(body))
+      } else {
+        xhr.send()
+      }
+    } catch (e) {
+      complete(root.networkError("Could not start the Gorelo API request."))
+    }
   }
 
-  // Follow cursor pagination up to maxPages pages, then callback(items, error).
+  // Follow cursor pagination up to maxPages pages, then
+  // callback(items, error, truncated).
   function requestAll(path, params, maxPages, callback) {
     var items = []
     var pages = 0
@@ -364,13 +448,13 @@ QtObject {
       for (var k in params) p[k] = params[k]
       if (cursor) p.Cursor = cursor
       root.request("GET", path + Api.query(p), null, function(result) {
-        if (!result.ok) { callback(items, result); return }
+        if (!result.ok) { callback(items, result, false); return }
         var data = Array.isArray(result.data) ? result.data : []
         for (var i = 0; i < data.length; i++) items.push(data[i])
         pages++
         var next = Api.nextCursor(result.pagination)
         if (next && pages < maxPages) step(next)
-        else callback(items, null)
+        else callback(items, null, !!next)
       })
     }
     step("")
@@ -380,10 +464,11 @@ QtObject {
 
   function connect() {
     if (!root.hasKey) return
-    root.generation++
+    root.supersedeRequests()
     root.phase = "connecting"
     root.lastError = ""
     root.lastErrorKind = ""
+    root.lastErrorCode = ""
     root.loadReference(function(ok) {
       if (!ok) return
       root.phase = "connected"
@@ -411,7 +496,7 @@ QtObject {
     var gen = root.generation
     function bail(result) {
       if (gen !== root.generation) return
-      root.fail(result.kind, result.error)
+      root.fail(result.kind, result.error, result.code)
       if (result.kind !== "credential" && result.kind !== "config") {
         // Transient: stay where we are and let the poll timer retry.
         if (root.phase === "connecting") root.phase = "error"
@@ -444,6 +529,7 @@ QtObject {
               root.referenceLoaded = true
               root.lastError = ""
               root.lastErrorKind = ""
+              root.lastErrorCode = ""
               done(true)
             })
           })
@@ -471,18 +557,36 @@ QtObject {
   }
 
   function poll() {
-    if (!root.hasKey || root.polling) return
+    if (root.polling) { root.pollRequested = true; return }
+    if (!root.hasKey) return
     if (root.phase !== "connected" && root.phase !== "connecting") return
     root.polling = true
+    root.pollRequested = false
     var gen = root.generation
-    var statusFilter = root.effectiveStatusIds
+    var serial = root.pollSerial
+    var technician = root.technicianId
+    var statusFilter = root.effectiveStatusIds.slice()
     var mineParams = {
       PageSize: 100, SortBy: "updatedOn", SortOrder: "desc",
-      StatusIds: statusFilter, LeadAssigneeIds: root.technicianId ? [root.technicianId] : []
+      StatusIds: statusFilter, LeadAssigneeIds: technician ? [technician] : []
     }
     var allParams = { PageSize: 100, SortBy: "updatedOn", SortOrder: "desc", StatusIds: statusFilter }
 
-    function finishPoll(mine, all) {
+    function stale() {
+      return gen !== root.generation || serial !== root.pollSerial
+    }
+
+    function finishStalePoll() {
+      if (gen !== root.generation) return
+      root.polling = false
+      if (root.pollRequested || serial !== root.pollSerial) {
+        root.pollRequested = false
+        Qt.callLater(function() { root.poll() })
+      }
+    }
+
+    function finishPoll(mine, all, mineWasTruncated, allWasTruncated) {
+      if (stale()) { finishStalePoll(); return }
       if (gen !== root.generation) return
       root.polling = false
       root.pollBackoff = 0
@@ -490,42 +594,50 @@ QtObject {
       if (root.phase !== "connected") root.phase = "connected"
       root.lastError = ""
       root.lastErrorKind = ""
+      root.lastErrorCode = ""
 
-      if (root.notify && root.technicianId) {
-        var events = Model.diffForNotifications(root.mineIndex, mine, root.notifyMinPriority)
+      if (root.notify && technician) {
+        var events = Model.diffForNotifications(root.mineIndex, mine, root.notifyMinPriority, root.firstPollDone)
         for (var i = 0; i < events.length; i++) root.sendNotification(events[i])
       }
       root.mineIndex = Model.indexOf(mine)
       root.firstPollDone = true
       root.mineTickets = mine
       root.allTickets = all
+      root.mineTruncated = mineWasTruncated
+      root.allTruncated = allWasTruncated
       root.ticketRevision++
       root.rebuildRows()
+      if (root.pollRequested) {
+        root.pollRequested = false
+        Qt.callLater(function() { root.poll() })
+      }
     }
 
     function pollFailed(result) {
-      if (gen !== root.generation) return
+      if (stale()) { finishStalePoll(); return }
       root.polling = false
-      root.fail(result.kind, result.error)
+      root.fail(result.kind, result.error, result.code)
       if (result.kind === "ratelimit" || result.kind === "network") {
         root.pollBackoff = Math.min(4, root.pollBackoff + 1)
       }
     }
 
-    function fetchAll(mine) {
-      root.request("GET", "/v1/tickets" + Api.query(allParams), null, function(r) {
-        if (!r.ok) { pollFailed(r); return }
-        finishPoll(mine, Api.validTicketList(r.data))
+    function fetchAll(mine, mineWasTruncated) {
+      if (stale()) { finishStalePoll(); return }
+      root.requestAll("/v1/tickets", allParams, 5, function(all, err, allWasTruncated) {
+        if (err) { pollFailed(err); return }
+        finishPoll(mine, Api.validTicketList(all), mineWasTruncated, allWasTruncated)
       })
     }
 
-    if (root.technicianId) {
-      root.request("GET", "/v1/tickets" + Api.query(mineParams), null, function(r) {
-        if (!r.ok) { pollFailed(r); return }
-        fetchAll(Api.validTicketList(r.data))
+    if (technician) {
+      root.requestAll("/v1/tickets", mineParams, 5, function(mine, err, mineWasTruncated) {
+        if (err) { pollFailed(err); return }
+        fetchAll(Api.validTicketList(mine), mineWasTruncated)
       })
     } else {
-      fetchAll([])
+      fetchAll([], false)
     }
   }
 
@@ -580,59 +692,76 @@ QtObject {
   // ------------------------------------------------------------ actions
 
   property string actionError: ""
-  property bool actionBusy: false
+  property int pendingActions: 0
+  readonly property bool actionBusy: pendingActions > 0
 
   function openTicket(ticketId) {
     var ticket = root.ticketFor(ticketId)
     var url = ticket ? root.urlFor(ticket) : Api.ticketUrl(root.ticketUrlTemplate, { Id: String(ticketId) })
     if (!url) return false
-    Quickshell.execDetached(["xdg-open", url])
+    Qt.openUrlExternally(url)
     return true
   }
 
   function openWebApp() {
-    Quickshell.execDetached(["xdg-open", "https://app.gorelo.io/"])
+    Qt.openUrlExternally("https://app.gorelo.io/")
   }
 
-  function patchTicket(ticketId, patch, label) {
-    if (!root.connected) return false
-    root.actionBusy = true
+  function patchTicket(ticketId, patch, label, callback) {
+    if (!root.connected) {
+      if (callback) callback(false, "Not connected to Gorelo.")
+      return false
+    }
+    root.pendingActions++
     root.actionError = ""
     root.request("PATCH", "/v1/tickets/" + encodeURIComponent(String(ticketId)), patch, function(r) {
-      root.actionBusy = false
+      root.pendingActions = Math.max(0, root.pendingActions - 1)
       if (!r.ok) {
         root.actionError = label + " failed: " + r.error
+        if (callback) callback(false, r.error)
         return
       }
+      if (callback) callback(true, "")
       root.poll()
     })
     return true
   }
 
-  function setStatus(ticketId, statusId) {
+  function setStatus(ticketId, statusId, callback) {
     var id = parseInt(statusId, 10)
-    if (isNaN(id) || id <= 0) return false
-    return root.patchTicket(ticketId, { StatusId: id, UpdatedByName: root.technicianName || undefined }, "Status change")
+    if (isNaN(id) || id <= 0) {
+      if (callback) callback(false, "Invalid status.")
+      return false
+    }
+    return root.patchTicket(ticketId, { StatusId: id, UpdatedByName: root.technicianName || undefined }, "Status change", callback)
   }
 
-  function assignToMe(ticketId) {
-    if (!root.technicianId) return false
-    return root.patchTicket(ticketId, { LeadAssigneeId: root.technicianId, UpdatedByName: root.technicianName || undefined }, "Assignment")
+  function assignToMe(ticketId, callback) {
+    if (!root.technicianId) {
+      if (callback) callback(false, "No technician selected.")
+      return false
+    }
+    return root.patchTicket(ticketId, { LeadAssigneeId: root.technicianId, UpdatedByName: root.technicianName || undefined }, "Assignment", callback)
   }
 
-  function addPrivateNote(ticketId, text) {
+  function addPrivateNote(ticketId, text, callback) {
     var body = String(text || "").trim()
-    if (!body || !root.connected) return false
-    root.actionBusy = true
+    if (!body || !root.connected) {
+      if (callback) callback(false, !body ? "A note is required." : "Not connected to Gorelo.")
+      return false
+    }
+    root.pendingActions++
     root.actionError = ""
     var payload = { ConversationTypeId: Api.CONVERSATION_PRIVATE, Body: Api.escapeHtml(body) }
     if (root.technicianName) payload.CreatedByName = root.technicianName
     root.request("POST", "/v1/tickets/" + encodeURIComponent(String(ticketId)) + "/comments", payload, function(r) {
-      root.actionBusy = false
+      root.pendingActions = Math.max(0, root.pendingActions - 1)
       if (!r.ok) {
         root.actionError = "Note failed: " + r.error
+        if (callback) callback(false, r.error)
         return
       }
+      if (callback) callback(true, "")
       root.poll()
     })
     return true
@@ -647,17 +776,24 @@ QtObject {
   property string createError: ""
   property string lastCreatedId: ""
   property bool capturing: false
+  property int draftRevision: 0
 
   function updateDraft(patch) {
+    var oldAttachment = String(root.draft.attachmentPath || "")
     var next = {}
     for (var k in root.draft) next[k] = root.draft[k]
     for (var p in patch) next[p] = patch[p]
     root.draft = next
+    var newAttachment = String(next.attachmentPath || "")
+    if (oldAttachment && oldAttachment !== newAttachment) root.deleteAttachment(oldAttachment)
   }
 
   function clearDraft() {
+    var attachment = String(root.draft.attachmentPath || "")
     root.draft = Model.emptyDraft()
+    root.draftRevision++
     root.createError = ""
+    if (attachment) root.deleteAttachment(attachment)
   }
 
   readonly property var createDefaults: ({
@@ -721,16 +857,55 @@ QtObject {
     if (warning) root.createError = warning
     var ticket = { Id: id }
     root.toast("Ticket created", warning || "")
-    if (root.openAfterCreate && id) Quickshell.execDetached(["xdg-open", root.urlFor(ticket)])
+    if (root.openAfterCreate && id) Qt.openUrlExternally(root.urlFor(ticket))
     root.created(id, warning)
     root.poll()
   }
 
   // curl does the multipart upload; the key reaches it through a config
   // file on stdin (`-K -`), never argv.
-  property string uploadTicketId: ""
-  property var uploadCallback: null
+  property var uploadOperation: null
   property string uploadOutput: ""
+
+  function curlConfigEscape(value) {
+    return String(value || "").replace(/\\/g, "\\\\").replace(/"/g, "\\\"")
+  }
+
+  function finishUpload(error, file) {
+    var operation = root.uploadOperation
+    if (!operation || operation.done) return
+    operation.done = true
+    uploadDeadline.stop()
+    root.uploadOperation = null
+    root.uploadOutput = ""
+    root.deleteAttachment(operation.path)
+    if (operation.generation !== root.generation) return
+    operation.callback(error, file)
+  }
+
+  function cancelUpload() {
+    var operation = root.uploadOperation
+    uploadDeadline.stop()
+    root.uploadOperation = null
+    root.uploadOutput = ""
+    if (operation) {
+      if (String(root.draft.attachmentPath || "") === operation.path) {
+        root.updateDraft({ attachmentPath: "" })
+      } else {
+        root.deleteAttachment(operation.path)
+      }
+    }
+    if (uploadProcess.running) uploadProcess.signal(15)
+  }
+
+  property Timer uploadDeadline: Timer {
+    interval: 120000
+    onTriggered: {
+      if (!root.uploadOperation) return
+      root.finishUpload("The screenshot upload timed out.", null)
+      if (uploadProcess.running) uploadProcess.signal(15)
+    }
+  }
 
   property Process uploadProcess: Process {
     command: []
@@ -740,85 +915,171 @@ QtObject {
       onStreamFinished: root.uploadOutput = String(text || "")
     }
     onStarted: {
-      uploadProcess.write("header = \"X-API-Key: " + root.apiKey + "\"\n")
+      var operation = root.uploadOperation
+      if (!operation) {
+        uploadProcess.signal(15)
+        return
+      }
+      uploadProcess.write("header = \"X-API-Key: " + root.curlConfigEscape(operation.apiKey) + "\"\n")
       uploadProcess.stdinEnabled = false
     }
     onExited: function(exitCode) {
-      var cb = root.uploadCallback
-      root.uploadCallback = null
-      if (!cb) return
+      var operation = root.uploadOperation
+      if (!operation) return
       var raw = root.uploadOutput
-      root.uploadOutput = ""
       var lines = raw.trim().split("\n")
       var code = parseInt(lines.pop(), 10)
       var parsed = Api.parseResponse(isNaN(code) ? 0 : code, lines.join("\n"))
-      if (exitCode !== 0 && !parsed.ok) { cb(parsed.error || ("curl exited " + exitCode), null); return }
-      if (!parsed.ok) { cb(parsed.error, null); return }
+      if (exitCode !== 0 && !parsed.ok) { root.finishUpload(parsed.error || ("curl exited " + exitCode), null); return }
+      if (!parsed.ok) { root.finishUpload(parsed.error, null); return }
       var file = parsed.data
-      if (!file || !file.Name || !file.Url) { cb("Unexpected upload response.", null); return }
-      cb("", file)
+      if (!file || !file.Name || !file.Url) { root.finishUpload("Unexpected upload response.", null); return }
+      root.finishUpload("", file)
     }
   }
 
   function uploadAttachment(ticketId, path, callback) {
-    if (root.uploadCallback || uploadProcess.running) { callback("An upload is already running.", null); return }
+    if (root.uploadOperation || uploadProcess.running) { callback("An upload is already running.", null); return }
     if (path.indexOf('"') !== -1 || path.indexOf("\n") !== -1) { callback("Unsupported characters in the file path.", null); return }
-    root.uploadCallback = callback
     root.uploadOutput = ""
-    root.uploadTicketId = String(ticketId)
     var url = Api.baseUrl(root.region) + "/v1/tickets/" + encodeURIComponent(String(ticketId)) + "/attachments"
-    uploadProcess.command = ["curl", "-sS", "--max-time", "90", "-K", "-",
+    root.uploadOperation = {
+      generation: root.generation, region: root.region, apiKey: root.apiKey,
+      ticketId: String(ticketId), url: url, path: String(path),
+      callback: callback, done: false
+    }
+    uploadProcess.command = ["curl", "-sS", "--max-time", "115", "-K", "-",
                              "-F", "file=@\"" + path + "\"",
                              "-w", "\n%{http_code}", url]
     uploadProcess.stdinEnabled = true
+    uploadDeadline.restart()
     uploadProcess.running = true
   }
 
   // Region select → save → the overlay re-summons itself with the path in
   // the draft. The overlay dismisses first so it is not in the shot.
   property string capturePath: ""
+  readonly property string screenshotDir: Quickshell.env("XDG_RUNTIME_DIR") + "/gorelo"
+  property int captureRevision: -1
+  property bool capturePending: false
+  property var deleteQueue: []
+
+  function deleteAttachment(path) {
+    var target = String(path || "")
+    if (!target || target.indexOf(root.screenshotDir + "/") !== 0) return
+    var queue = root.deleteQueue.slice()
+    queue.push(target)
+    root.deleteQueue = queue
+    if (!cleanupProcess.running) root.startNextDelete()
+  }
+
+  function startNextDelete() {
+    if (!root.deleteQueue.length || cleanupProcess.running) return
+    cleanupProcess.command = ["rm", "-f", root.deleteQueue[0]]
+    cleanupProcess.running = true
+  }
+
+  property Process cleanupProcess: Process {
+    command: []
+    onExited: {
+      var queue = root.deleteQueue.slice()
+      if (queue.length) queue.shift()
+      root.deleteQueue = queue
+      root.startNextDelete()
+    }
+  }
+
+  function summonNewTicket() {
+    if (root.shell && typeof root.shell.summon === "function") {
+      root.shell.summon(root.pluginId, JSON.stringify({ tab: "new" }))
+    }
+  }
+
+  property Process captureDirProcess: Process {
+    command: ["mkdir", "-m", "700", "-p", root.screenshotDir]
+    onExited: function(exitCode) {
+      if (!root.capturePending) return
+      if (exitCode === 0) captureDelay.restart()
+      else {
+        root.capturePending = false
+        root.capturing = false
+        root.captureRevision = -1
+        captureDeadline.stop()
+        root.createError = "Could not create the private screenshot directory."
+        root.summonNewTicket()
+      }
+    }
+  }
 
   property Process captureProcess: Process {
     command: ["omarchy", "capture", "screenshot", "region", "save"]
+    environment: ({ "OMARCHY_SCREENSHOT_DIR": root.screenshotDir })
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.capturePath = String(text || "").trim().split("\n").pop()
     }
     onExited: function(exitCode) {
+      if (!root.capturePending) {
+        if (root.capturePath) root.deleteAttachment(root.capturePath)
+        root.capturePath = ""
+        return
+      }
+      root.capturePending = false
       root.capturing = false
+      captureDeadline.stop()
       var path = exitCode === 0 ? root.capturePath : ""
       root.capturePath = ""
-      if (path) root.updateDraft({ attachmentPath: path })
-      if (root.shell && typeof root.shell.summon === "function") {
-        root.shell.summon(root.pluginId, JSON.stringify({ tab: "new" }))
-      }
+      if (path && root.captureRevision === root.draftRevision) root.updateDraft({ attachmentPath: path })
+      else if (path) root.deleteAttachment(path)
+      root.captureRevision = -1
+      root.summonNewTicket()
+    }
+  }
+
+  property Timer captureDeadline: Timer {
+    interval: 5 * 60 * 1000
+    onTriggered: {
+      if (!root.capturePending) return
+      root.capturePending = false
+      root.capturing = false
+      root.captureRevision = -1
+      root.createError = "Screenshot capture timed out."
+      captureDelay.stop()
+      if (captureDirProcess.running) captureDirProcess.signal(15)
+      if (captureProcess.running) captureProcess.signal(15)
+      root.summonNewTicket()
     }
   }
 
   property Timer captureDelay: Timer {
     interval: 350
-    onTriggered: captureProcess.running = true
+    onTriggered: if (root.capturePending) captureProcess.running = true
   }
 
   function captureScreenshot() {
-    if (root.capturing || captureProcess.running) return false
+    if (root.capturing || root.capturePending || captureDirProcess.running || captureProcess.running) return false
     root.capturing = true
+    root.capturePending = true
+    root.captureRevision = root.draftRevision
     root.capturePath = ""
-    captureDelay.restart()
+    captureDeadline.restart()
+    captureDirProcess.running = true
     return true
   }
 
   // Redacted: no key, no client names, no ticket titles.
   function statusLine() {
+    var safeCode = String(root.lastErrorCode || "").replace(/[^A-Za-z0-9._-]/g, "")
     return "phase=" + root.phase
       + " region=" + root.region
       + " key=" + (root.hasKey ? "present" : "absent")
-      + " technician=" + root.technicianId
+      + " technician=" + (root.technicianId ? "set" : "unset")
       + " reference=" + root.referenceLoaded
       + " mine=" + root.mineTickets.length
       + " all=" + root.allTickets.length
       + " backoff=" + root.pollBackoff
       + (root.lastPolledAt ? " polled=" + root.lastPolledAt : "")
-      + (root.lastError ? " error=" + root.lastErrorKind + ":" + root.lastError : "")
+      + (root.lastErrorKind ? " error=" + root.lastErrorKind
+          + (safeCode ? ":" + safeCode : "") : "")
   }
 }

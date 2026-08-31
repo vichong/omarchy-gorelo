@@ -114,6 +114,8 @@ foreground; `showCount` hides the number next to the mark when false.
 
 - No webhooks or streaming; the plugin polls (90 s by default, backing off
   on rate limits).
+- Each queue fetch is capped at five 100-ticket pages. When more results are
+  available, the panel says that it is showing the first 500.
 - Comments posted through the API are recorded as API-authored, with your
   name attached. The plugin only ever posts *private* notes.
 - Time entries cannot be created through the API, so there is no timer.
@@ -127,6 +129,8 @@ foreground; `showCount` hides the number next to the mark when false.
   or process arguments — the screenshot upload hands it to `curl` through a
   config file on stdin.
 - Everything the API returns is rendered as plain text.
+- Screenshots are captured under the private `$XDG_RUNTIME_DIR/gorelo`
+  directory (mode `0700`) and removed after upload, failure, removal or discard.
 - `config.json` (in `~/.config/omarchy/gorelo/`, or the checkout when
   symlinked) holds non-secret settings only and is git-ignored.
 

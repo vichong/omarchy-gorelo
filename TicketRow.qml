@@ -276,7 +276,10 @@ CursorSurface {
           opacity: noteField.text.trim().length > 0 ? 1.0 : 0.45
           onClicked: {
             if (!row.gorelo || !noteField.text.trim()) return
-            if (row.gorelo.addPrivateNote(row.ticketId, noteField.text)) noteField.text = ""
+            var field = noteField
+            row.gorelo.addPrivateNote(row.ticketId, noteField.text, function(ok) {
+              if (ok && field) field.text = ""
+            })
           }
         }
       }

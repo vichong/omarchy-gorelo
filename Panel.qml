@@ -421,6 +421,17 @@ Panel {
           font.pixelSize: Style.font.caption
         }
 
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          visible: root.connected && root.gorelo.truncated
+          text: "Showing first 500 tickets. Narrow the status filter to see the rest."
+          wrapMode: Text.WordWrap
+          color: root.dim
+          font.family: root.family
+          font.pixelSize: Style.font.caption
+        }
+
         // ---------- ticket list ----------
         ScrollView {
           id: listScroller

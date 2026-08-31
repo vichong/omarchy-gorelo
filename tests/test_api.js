@@ -20,7 +20,12 @@ equal(Api.parseResponse(429, "").kind, "ratelimit", "429 is rate limit")
 equal(Api.parseResponse(0, "").kind, "network", "status 0 is network")
 const apiErr = Api.parseResponse(400, JSON.stringify({ IsSuccess: false, Notifications: [{ Code: "1", Message: "Bad title" }] }))
 equal([apiErr.kind, apiErr.error], ["api", "Bad title"], "API notification messages surface")
+equal(apiErr.code, "1", "first notification code surfaces separately")
 equal(Api.parseResponse(500, "not json").error, "Gorelo API error (HTTP 500).", "non-JSON body")
+equal(Api.parseResponse(200, "").kind, "protocol", "empty 2xx body is a protocol error")
+equal(Api.parseResponse(200, "<html>nope</html>").kind, "protocol", "HTML 2xx body is a protocol error")
+equal(Api.parseResponse(200, JSON.stringify({ Data: [] })).kind, "protocol", "2xx wrapper must explicitly succeed")
+equal(Api.parseResponse(200, JSON.stringify({ IsSuccess: false })).kind, "protocol", "failed 2xx wrapper is a protocol error")
 
 const statuses = [
   { Id: 3, Name: "Closed", SortOrder: 9 }, { Id: 1, Name: "New", SortOrder: 1 },

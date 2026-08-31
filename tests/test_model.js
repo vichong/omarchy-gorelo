@@ -6,6 +6,7 @@ equal(Model.ageString("2026-08-31T09:59:30Z", now), "now", "age under a minute")
 equal(Model.ageString("2026-08-31T09:15:00Z", now), "45m", "age in minutes")
 equal(Model.ageString("2026-08-31T04:00:00Z", now), "6h", "age in hours")
 equal(Model.ageString("2026-08-28T10:00:00", now), "3d", "age in days, zone-less timestamps are UTC")
+equal(Model.parseIso("2026-08-31T10:00:00"), Model.parseIso("2026-08-31T10:00:00Z"), "zone-less timestamps parse as UTC")
 equal(Model.ageString("", now), "", "empty timestamp")
 
 const tickets = [
@@ -29,21 +30,22 @@ equal(Model.counts(tickets.slice(0, 3)), { total: 3, unread: 1, urgent: 1, waiti
 
 const previous = Model.indexOf([tickets[0], tickets[1]])
 assert(Object.getPrototypeOf(previous) === null, "index is prototype-free")
-equal(Model.diffForNotifications(Object.create(null), tickets, 5), [], "first poll never notifies")
+equal(Model.diffForNotifications(Object.create(null), tickets, 5, false), [], "first poll never notifies")
+equal(Model.diffForNotifications(Object.create(null), [tickets[0]], 5, true).map(e => e.kind), ["assigned"], "assignment after an empty initialized queue notifies")
 const next = [
   Object.assign({}, tickets[0]),
   Object.assign({}, tickets[1], { UpdatedOn: "2026-08-31T09:59:00Z", IsUnread: true }),
   tickets[2]
 ]
-const events = Model.diffForNotifications(previous, next, 3)
+const events = Model.diffForNotifications(previous, next, 3, true)
 equal(events.map(e => e.kind + ":" + e.ticket.Id), ["assigned:c"], "urgent already unread does not re-notify; new normal ticket does")
 const next2 = [Object.assign({}, tickets[1], { IsUnread: false })]
 const prev2 = Model.indexOf(next2)
 const moved = [Object.assign({}, next2[0], { UpdatedOn: "2026-08-31T10:00:00Z", IsUnread: true })]
-equal(Model.diffForNotifications(prev2, moved, 1).map(e => e.kind), ["updated"], "read → unread with new UpdatedOn notifies")
-equal(Model.diffForNotifications(previous, [tickets[4]], 4), [], "priority None never notifies below 'everything'")
-equal(Model.diffForNotifications(previous, [tickets[4]], 5).length, 1, "priority None notifies at 'everything'")
-equal(Model.diffForNotifications(previous, [tickets[2]], 1), [], "normal ticket filtered at urgent-only")
+equal(Model.diffForNotifications(prev2, moved, 1, true).map(e => e.kind), ["updated"], "read → unread with new UpdatedOn notifies")
+equal(Model.diffForNotifications(previous, [tickets[4]], 4, true), [], "priority None never notifies below 'everything'")
+equal(Model.diffForNotifications(previous, [tickets[4]], 5, true).length, 1, "priority None notifies at 'everything'")
+equal(Model.diffForNotifications(previous, [tickets[2]], 1, true), [], "normal ticket filtered at urgent-only")
 
 const text = Model.notificationText({ kind: "updated", ticket: { DisplayNumber: "T-1", Title: "Printer", LastUpdate: { Summary: "Replied" } } })
 equal(text, { headline: "Updated: T-1", body: "Printer — Replied" }, "notification text")

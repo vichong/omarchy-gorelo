@@ -29,10 +29,10 @@ function priorityIdOf(ticket) {
 
 function parseIso(value) {
   if (!value) return NaN
-  var t = Date.parse(String(value))
-  if (!isNaN(t)) return t
-  // Timestamps without a zone designator are UTC.
-  return Date.parse(String(value) + "Z")
+  var text = String(value)
+  // Date.parse treats zone-less timestamps as local time on some engines.
+  if (!/(Z|[+-]\d\d:\d\d)$/i.test(text)) text += "Z"
+  return Date.parse(text)
 }
 
 function ageString(iso, nowMs) {
@@ -129,10 +129,11 @@ function notifies(priorityId, minPriority) {
 
 // Compare the tickets assigned to me against the previous poll. New ids are
 // "assigned"; known ids whose UpdatedOn moved and that are now unread are
-// "updated". The very first poll (empty previous index) reports nothing.
-function diffForNotifications(previous, tickets, minPriority) {
+// "updated". The explicitly identified first poll reports nothing.
+function diffForNotifications(previous, tickets, minPriority, initialized) {
   var events = []
-  if (!previous || Object.keys(previous).length === 0) return events
+  if (!initialized) return events
+  if (!previous) previous = Object.create(null)
   if (!Array.isArray(tickets)) return events
   for (var i = 0; i < tickets.length; i++) {
     var t = tickets[i]
