@@ -56,8 +56,8 @@ get this far.
 
 The queue follows the same conventions as every Omarchy panel: `↑`/`↓` (or
 `j`/`k`) move, `←`/`→` switch tab, `enter` opens the ticket, `/` focuses the
-search box, `esc` clears the search or closes, `tab` moves to the next bar
-panel. Everything else is a button.
+search box (where `enter` runs the server search), `esc` clears the search or
+closes, `tab` moves to the next bar panel. Everything else is a button.
 
 ## Scripting
 
@@ -76,14 +76,16 @@ omarchy-shell gorelo status          # redacted state line, for bug reports
 Example `~/.config/hypr/bindings.lua`:
 
 ```lua
-o.bind("SUPER SHIFT, G", "exec", "omarchy-shell gorelo newTicket", "New Gorelo ticket")
+o.bind("SUPER + SHIFT + G", "New Gorelo ticket", "omarchy-shell gorelo newTicket")
 ```
 
 ## Requirements
 
 - Omarchy 4 (`schemaVersion: 1` plugin API)
 - `secret-tool` (libsecret) with a running keyring daemon
-- `curl` (screenshot uploads only)
+- `curl` (screenshot uploads only) and `gio` from glib (only when a specific
+  browser is chosen in Settings; the system default uses the desktop's
+  URL handler)
 - A Gorelo API key: **Settings → Integrations → API keys**, with read/write on
   tickets and read on clients, contacts and organization
 
@@ -138,8 +140,9 @@ Per-instance options live on the widget's entry in
 { "id": "io.github.vichong.gorelo", "colorful": true, "showCount": true }
 ```
 
-`colorful` paints the mark in Gorelo's brand palette instead of the theme
-foreground; `showCount` hides the number next to the mark when false.
+`colorful` paints the small bar icon in Gorelo's brand palette instead of the
+theme foreground (the large mark inside the popup is always in brand colours);
+`showCount` hides the number next to the icon when false.
 
 ## Removal
 
@@ -155,8 +158,13 @@ The plugin never touches any other configuration.
 
 ## Limits of the public API
 
-- No webhooks or streaming; the plugin polls (90 s by default, backing off
-  on rate limits).
+- No webhooks or streaming; the plugin polls (90 s by default). Gorelo
+  rate-limits bursts: polls back off (up to 10 min) and a connection that
+  fails on a rate limit or network error retries by itself (30 s, doubling
+  to 5 min).
+- A server search returns the 50 most recently updated matches. The device
+  cache holds up to 2,000 computers and refreshes every 30 minutes; Enter
+  also asks Gorelo directly, so machines beyond the cache are still found.
 - Each queue fetch is capped at five 100-ticket pages. When more results are
   available, the panel says that it is showing the first 500.
 - Comments posted through the API are recorded as API-authored, with your
