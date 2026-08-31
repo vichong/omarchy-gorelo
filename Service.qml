@@ -525,8 +525,8 @@ QtObject {
     root.loadReference(function(ok) {
       if (!ok) {
         if (root.phase === "error" && root.transientError) {
-          root.reconnectAttempts = Math.min(8, root.reconnectAttempts + 1)
           reconnectTimer.restart()
+          root.reconnectAttempts = Math.min(8, root.reconnectAttempts + 1)
         }
         return
       }
@@ -733,12 +733,10 @@ QtObject {
     var next = String(text || "")
     if (next === root.searchQuery) return
     root.searchQuery = next
-    root.searchSerial++
-    root.searching = false
-    root.searchError = ""
+    // Editing the text always returns to filtering the loaded queue; a
+    // server result set only ever belongs to the exact text that ran it.
+    root.leaveSearch()
     if (!next.trim()) {
-      root.searchActive = false
-      root.searchResults = []
       searchDebounce.stop()
       root.rebuildRows()
       return
@@ -892,9 +890,15 @@ QtObject {
         return
       }
       if (callback) callback(true, "")
-      root.poll()
+      root.refreshAfterMutation()
     })
     return true
+  }
+
+  // Search rows come from a snapshot, so rerun the search alongside the poll.
+  function refreshAfterMutation() {
+    if (root.searchActive) root.runSearch()
+    root.poll()
   }
 
   function setStatus(ticketId, statusId, callback) {
@@ -932,7 +936,7 @@ QtObject {
         return
       }
       if (callback) callback(true, "")
-      root.poll()
+      root.refreshAfterMutation()
     })
     return true
   }
