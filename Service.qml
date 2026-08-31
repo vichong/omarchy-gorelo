@@ -498,15 +498,39 @@ QtObject {
 
   // ------------------------------------------------------------ connect
 
+  // Transient failures while connecting (rate limit, network, malformed
+  // reply) retry on their own with backoff; only a bad key or config waits
+  // for the user. Without this a 429 on the very first request after login
+  // would leave the panel on "Disconnected" until someone pressed Retry.
+  property int reconnectAttempts: 0
+  readonly property bool transientError: lastErrorKind === "ratelimit" || lastErrorKind === "network"
+    || lastErrorKind === "protocol" || lastErrorKind === "api"
+
+  property Timer reconnectTimer: Timer {
+    interval: Math.min(300000, 30000 * Math.pow(2, Math.min(4, root.reconnectAttempts)))
+    onTriggered: {
+      if (root.connected || !root.hasKey || root.phase !== "error" || !root.transientError) return
+      root.connect()
+    }
+  }
+
   function connect() {
     if (!root.hasKey) return
     root.supersedeRequests()
+    reconnectTimer.stop()
     root.phase = "connecting"
     root.lastError = ""
     root.lastErrorKind = ""
     root.lastErrorCode = ""
     root.loadReference(function(ok) {
-      if (!ok) return
+      if (!ok) {
+        if (root.phase === "error" && root.transientError) {
+          root.reconnectAttempts = Math.min(8, root.reconnectAttempts + 1)
+          reconnectTimer.restart()
+        }
+        return
+      }
+      root.reconnectAttempts = 0
       root.phase = "connected"
       root.pollBackoff = 0
       root.poll()
@@ -514,6 +538,7 @@ QtObject {
   }
 
   function retryConnection() {
+    root.reconnectAttempts = 0
     if (root.hasKey) root.connect()
     else if (!root.credentialBusy) credentials.lookup(root.region)
   }

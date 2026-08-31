@@ -107,7 +107,8 @@ Panel {
       if (gorelo.lastError) return "Retrying · " + gorelo.lastError
       return gorelo.activitySummary || "Connected"
     case "connecting": return "Connecting…"
-    case "error": return "Disconnected"
+    case "error": return gorelo.transientError && gorelo.lastError
+      ? "Retrying · " + gorelo.lastError : "Disconnected"
     default: return "Idle"
     }
   }
