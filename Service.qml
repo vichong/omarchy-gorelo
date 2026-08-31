@@ -438,6 +438,9 @@ QtObject {
   }
 
   function resetData() {
+    // A draft belongs to one tenancy: its client id must never be submitted
+    // to a different region, or from demo to live (ids can overlap).
+    root.clearDraft()
     root.statuses = []
     root.types = []
     root.groups = []
@@ -1123,7 +1126,7 @@ QtObject {
                 "-u", priority === 1 ? "critical" : "normal",
                 "-r", "gorelo-" + String(ticket.Id),
                 text.headline, text.body]
-    if (url) args = args.concat(["--exec"].concat(root.openUrlCommand(url)))
+    if (url && !root.demoMode) args = args.concat(["--exec"].concat(root.openUrlCommand(url)))
     Quickshell.execDetached(args)
   }
 
@@ -1179,6 +1182,10 @@ QtObject {
 
   function openUrl(url) {
     if (!url) return false
+    if (root.demoMode) {
+      root.toast("Demo mode", "Would open " + url)
+      return true
+    }
     if (root.browserDesktop) Quickshell.execDetached(root.openUrlCommand(url))
     else Qt.openUrlExternally(url)
     return true
@@ -1354,6 +1361,10 @@ QtObject {
     var problem = Model.validateDraft(root.draft, root.createDefaults)
     if (problem) { root.createError = problem; return false }
     if (!root.connected) { root.createError = "Not connected to Gorelo."; return false }
+    if (!root.clientNames[String(root.draft.clientId)]) {
+      root.createError = "Pick a client from the current list."
+      return false
+    }
 
     var d = root.draft
     var body = {
@@ -1445,8 +1456,10 @@ QtObject {
     var ticket = { Id: id }
     root.toast("Ticket created", warning || "")
     if (root.openAfterCreate && id) root.openUrl(root.urlFor(ticket))
+    // Refresh first so a `created` handler can already find the ticket in
+    // demo mode (where the poll is synchronous); a live poll is in flight.
+    root.refreshAfterMutation()
     root.created(id, warning)
-    root.poll()
   }
 
   // curl does the multipart upload; the key reaches it through a config
