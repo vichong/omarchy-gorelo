@@ -21,9 +21,8 @@ ListRow {
   required property string url
 
   subtitle: [clientName, statusName, lastUser].filter(function(value) { return value !== "" }).join(" · ")
-  tooltipText: "Open " + name + " in Gorelo · right-click for details"
+  tooltipText: "Show " + name + " details"
   chevronTooltip: "Details"
-  onActivated: if (gorelo) gorelo.openDevice(deviceId)
 
   readonly property string networkSummary: {
     var parts = []

@@ -32,12 +32,12 @@ get this far.
   click opens a new ticket, middle click refreshes.
 - **Queue popup** — *Mine* and *All open* tabs, sorted urgent-first then by
   last update. Each row shows number, title, client, status, age, unread and
-  "waiting on client" state. Click or Enter opens the ticket in the browser;
-  unfold a row for a status dropdown, *Assign to me* and a private note.
+  "waiting on client" state. Click or Enter unfolds a row: status dropdown,
+  *Assign to me*, a private note, and *Open in Gorelo* for the browser.
   Its search bar filters the loaded queue as you type and also finds managed
   computers by device name or last logged-on user. Press Enter to search
   tickets and device names across the server too, including closed tickets;
-  click a device to open its page in Gorelo.
+  unfold a device for its details and an *Open in Gorelo* button.
 - **Notifications** — when a ticket is assigned to you, or one of yours gets
   an unread update. Click the notification to open the ticket. Threshold by
   priority.
@@ -55,7 +55,7 @@ get this far.
 ## Keyboard
 
 The queue follows the same conventions as every Omarchy panel: `↑`/`↓` (or
-`j`/`k`) move, `←`/`→` switch tab, `enter` opens the ticket, `/` focuses the
+`j`/`k`) move, `←`/`→` switch tab, `enter` unfolds the row, `/` focuses the
 search box (where `enter` runs the server search), `esc` clears the search or
 closes, `tab` moves to the next bar panel. Everything else is a button.
 

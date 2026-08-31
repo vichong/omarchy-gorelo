@@ -40,9 +40,8 @@ ListRow {
     if (waiting) parts.push("waiting on client")
     return parts.join(" · ")
   }
-  tooltipText: "Open " + displayNumber + " in browser · right-click for actions"
+  tooltipText: "Show " + displayNumber + " actions"
   chevronTooltip: "Actions"
-  onActivated: if (gorelo) gorelo.openTicket(ticketId)
 
   mainLine: Component {
     Item {
@@ -153,7 +152,7 @@ ListRow {
         }
         Button {
           bordered: true
-          text: "Open"
+          text: "Open in Gorelo"
           foreground: row.fg
           fontFamily: row.family
           onClicked: row.activate()

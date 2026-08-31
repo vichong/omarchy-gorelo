@@ -18,7 +18,6 @@ CursorSurface {
 
   signal expandToggled()
   signal cursorRequested()
-  signal activated()
 
   readonly property color fg: bar ? bar.foreground : Color.foreground
   readonly property string family: bar ? bar.fontFamily : Style.font.family
@@ -29,7 +28,10 @@ CursorSurface {
   current: expanded
   implicitHeight: layout.implicitHeight + Style.spacing.rowPaddingX
 
-  function activate() { row.activated() }
+  // Click and Enter unfold the row; leaving the desktop is always an explicit
+  // "Open in Gorelo" button, like the other Omarchy panels keep their primary
+  // action inside the panel.
+  function activate() { row.expandToggled() }
 
   MouseArea {
     id: rowMouse
@@ -38,10 +40,7 @@ CursorSurface {
     cursorShape: Qt.PointingHandCursor
     acceptedButtons: Qt.LeftButton | Qt.RightButton
     onContainsMouseChanged: if (containsMouse) row.cursorRequested()
-    onClicked: function(mouse) {
-      if (mouse.button === Qt.RightButton) row.expandToggled()
-      else row.activate()
-    }
+    onClicked: row.expandToggled()
   }
 
   PanelToolTip {
