@@ -9,13 +9,13 @@ import "Model.js" as Model
 // expanded row; the service owns tickets, reference data and the connection.
 Panel {
   id: root
-  moduleName: "gorelo"
+  moduleName: "io.github.vichong.gorelo"
   ipcTarget: "gorelo"
   // We own the target's single IpcHandler, so extra methods can sit
   // alongside the base open/close/toggle.
   manageIpc: false
 
-  readonly property var gorelo: bar && bar.shell ? bar.shell.serviceFor("gorelo") : null
+  readonly property var gorelo: bar && bar.shell ? bar.shell.serviceFor(root.moduleName) : null
   readonly property bool serviceReady: gorelo !== null
   readonly property string phase: serviceReady ? gorelo.phase : "idle"
   readonly property bool connected: phase === "connected"
@@ -77,7 +77,7 @@ Panel {
   function openOverlay(tab) {
     if (!bar || !bar.shell || typeof bar.shell.summon !== "function") return
     close()
-    bar.shell.summon("gorelo", JSON.stringify({ tab: tab || "new" }))
+    bar.shell.summon(root.moduleName, JSON.stringify({ tab: tab || "new" }))
   }
 
   readonly property bool expandedInputOpen: {

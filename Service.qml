@@ -18,7 +18,7 @@ QtObject {
   readonly property string home: Quickshell.env("HOME")
   readonly property string configDir: home + "/.config/omarchy/gorelo"
   readonly property string configPath: configDir + "/config.json"
-  readonly property string pluginId: manifest && manifest.id ? manifest.id : "gorelo"
+  readonly property string pluginId: manifest && manifest.id ? manifest.id : "io.github.vichong.gorelo"
 
   // ------------------------------------------------------------ config
 

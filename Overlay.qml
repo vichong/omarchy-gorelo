@@ -10,8 +10,8 @@ import "Model.js" as Model
 
 // Quick ticket form and settings. Summoned by the shell, not by IPC — the bar
 // widget owns the "gorelo" target:
-//   omarchy-shell shell summon gorelo '{"tab":"new"}'
-//   omarchy-shell shell summon gorelo '{"tab":"settings"}'
+//   omarchy-shell shell summon io.github.vichong.gorelo '{"tab":"new"}'
+//   omarchy-shell shell summon io.github.vichong.gorelo '{"tab":"settings"}'
 Item {
   id: root
 
@@ -57,7 +57,7 @@ Item {
   function dismiss() {
     root.opened = false
     if (root.shell && typeof root.shell.hide === "function") {
-      root.shell.hide((root.manifest && root.manifest.id) || "gorelo")
+      root.shell.hide((root.manifest && root.manifest.id) || "io.github.vichong.gorelo")
     }
   }
 

@@ -75,9 +75,9 @@ omarchy plugin add https://github.com/vichong/omarchy-gorelo.git --enable
 For local development, symlink the checkout instead:
 
 ```bash
-ln -sfn "$PWD" ~/.config/omarchy/plugins/gorelo
+ln -sfn "$PWD" ~/.config/omarchy/plugins/io.github.vichong.gorelo
 omarchy restart shell
-omarchy plugin enable gorelo right
+omarchy plugin enable io.github.vichong.gorelo right
 ```
 
 ## Setup
@@ -98,17 +98,34 @@ Optionally adjust which statuses count as "open" (by default anything whose
 name doesn't look closed, resolved or cancelled), the poll interval, and the
 notification threshold.
 
-## Widget settings
+## Configuration
+
+Everything user-facing is in the Settings overlay (`omarchy-shell gorelo
+settings`) and is written to `~/.config/omarchy/gorelo/config.json` — except
+the API key, which only ever lives in the keyring. Move the widget with
+`omarchy bar move io.github.vichong.gorelo --section left`.
 
 Per-instance options live on the widget's entry in
 `~/.config/omarchy/shell.json`:
 
 ```json
-{ "id": "gorelo", "colorful": true, "showCount": true }
+{ "id": "io.github.vichong.gorelo", "colorful": true, "showCount": true }
 ```
 
 `colorful` paints the mark in Gorelo's brand palette instead of the theme
 foreground; `showCount` hides the number next to the mark when false.
+
+## Removal
+
+```bash
+omarchy plugin remove io.github.vichong.gorelo
+secret-tool clear service gorelo region usw   # and/or: region aue
+rm -r ~/.config/omarchy/gorelo
+```
+
+`omarchy plugin remove` takes the widget out of the bar and deletes the
+checkout; the two extra lines remove the stored API key and the settings file.
+The plugin never touches any other configuration.
 
 ## Limits of the public API
 
