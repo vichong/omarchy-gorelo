@@ -102,7 +102,7 @@ ListRow {
         text: "Open in Gorelo"
         foreground: row.fg
         fontFamily: row.family
-        onClicked: row.activate()
+        onClicked: if (row.gorelo) row.gorelo.openDevice(row.deviceId)
       }
     }
   }
