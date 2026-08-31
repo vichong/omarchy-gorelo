@@ -1,5 +1,7 @@
 # Gorelo for Omarchy
 
+![Gorelo × Omarchy — your Gorelo ticket queue in the Omarchy bar](docs/banner.png)
+
 Your [Gorelo](https://www.gorelo.io/) ticket queue in the Omarchy bar, plus a
 quick-ticket overlay that can attach a screenshot.
 
@@ -7,7 +9,9 @@ Quickshell plugin for **Omarchy 4**, for technicians who run Omarchy on their
 own workstation. Gorelo has no Linux agent — this is the tech's side of the
 desk, not a managed endpoint.
 
-> Not affiliated with or endorsed by Gorelo.
+> Not affiliated with or endorsed by Gorelo or Omarchy. The Gorelo and Omarchy
+> marks belong to their respective owners and are used here only to identify
+> what this plugin connects.
 
 ## What you get
 
