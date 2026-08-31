@@ -15,7 +15,7 @@ var KEYS = [
   "openAfterCreate", "browserDesktop"
 ]
 
-var DEFAULT_TICKET_URL = "https://app.gorelo.io/Ticket/{id}"
+var DEFAULT_TICKET_URL = "https://app.gorelo.io/ticket/ticket-detail/{id}"
 var DEFAULT_DEVICE_URL = "https://app.gorelo.io/asset/device-detail/{id}?hostName={name}"
 
 function intOr(value, fallback) {

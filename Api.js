@@ -154,7 +154,7 @@ function userDisplayName(user) {
 
 function ticketUrl(template, ticket) {
   if (!ticket) return ""
-  var t = template || "https://app.gorelo.io/Ticket/{id}"
+  var t = template || "https://app.gorelo.io/ticket/ticket-detail/{id}"
   return t
     .replace("{id}", encodeURIComponent(String(ticket.Id || "")))
     .replace("{number}", encodeURIComponent(String(ticket.Number || "")))
