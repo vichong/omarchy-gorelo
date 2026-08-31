@@ -246,16 +246,16 @@ Item {
       readonly property string defaultsSummary: {
         if (!root.service || !root.connected) return ""
         var s = root.service
-        var status = s.statusNames[String(s.defaultStatusId)] || ""
+        var status = s.statusNames[String(s.effectiveDefaultStatusId)] || ""
         var group = ""
-        for (var i = 0; i < s.groups.length; i++) if (s.groups[i].Id === s.defaultGroupId) group = String(s.groups[i].Name)
+        for (var i = 0; i < s.groups.length; i++) if (s.groups[i].Id === s.effectiveDefaultGroupId) group = String(s.groups[i].Name)
         var type = ""
-        for (var j = 0; j < s.types.length; j++) if (s.types[j].Id === s.defaultTypeId) type = String(s.types[j].Name)
+        for (var j = 0; j < s.types.length; j++) if (s.types[j].Id === s.effectiveDefaultTypeId) type = String(s.types[j].Name)
         var parts = []
         if (group) parts.push("to " + group)
         if (status) parts.push("as " + status)
         if (type) parts.push("type " + type)
-        if (s.technicianName) parts.push("assigned to " + s.technicianName)
+        if (s.effectiveTechnicianName) parts.push("assigned to " + s.effectiveTechnicianName)
         return parts.length ? "Goes " + parts.join(", ") + "." : ""
       }
 
@@ -515,10 +515,14 @@ Item {
       readonly property bool regionChanged: root.service && root.regionDraft !== root.service.region
       readonly property bool needsKey: !root.service || !root.service.hasKey || settingsPane.regionChanged
       readonly property bool canConnect: !settingsPane.keyringBusy
-        && (root.keyDraft.trim().length > 0 || (!settingsPane.needsKey && root.service && !root.connected))
+        && root.service && !root.service.demoMode
+        && (root.keyDraft.trim().length > 0 || (!settingsPane.needsKey && !root.connected))
 
       readonly property string connectionStatus: {
         if (!root.service) return "Service unavailable"
+        if (root.service.demoMode) {
+          return root.service.phase === "connected" ? "Demo connected" : "Starting demo…"
+        }
         switch (root.service.phase) {
         case "connected": return "Connected to " + Api.regionLabel(root.service.region)
           + (root.service.lastError ? " · " + root.service.lastError : "")
@@ -530,6 +534,8 @@ Item {
 
       function saveInt(key, value) {
         if (!root.service) return
+        if (root.service.demoMode
+            && (key === "defaultStatusId" || key === "defaultGroupId" || key === "defaultTypeId")) return
         var patch = {}
         patch[key] = parseInt(value, 10) || 0
         root.service.saveConfig(patch)
@@ -613,7 +619,8 @@ Item {
               }
 
               Button {
-                visible: root.service && root.service.hasKey && !settingsPane.regionChanged
+                visible: root.service && root.service.hasKey && !root.service.demoMode
+                  && !settingsPane.regionChanged
                 bordered: true
                 text: "Remove key"
                 opacity: settingsPane.keyringBusy ? 0.45 : 1.0
@@ -634,6 +641,16 @@ Item {
                 font.family: root.family
                 font.pixelSize: Style.font.caption
               }
+            }
+
+            Toggle {
+              width: settingsColumn.width
+              label: "Demo mode"
+              description: "A fake MSP, so you can try the widget without a Gorelo tenancy."
+              checked: root.service ? root.service.demoMode : false
+              foreground: root.foreground
+              fontFamily: root.family
+              onClicked: if (root.service) root.service.setDemoMode(!root.service.demoMode)
             }
           }
 
@@ -665,9 +682,10 @@ Item {
                 options: root.service ? root.service.users.map(function(u) {
                   return { value: String(u.Id), label: Api.userDisplayName(u), description: String(u.Email || "") }
                 }) : []
-                value: root.service && root.service.technicianId ? String(root.service.technicianId) : ""
+                value: root.service && root.service.effectiveTechnicianId
+                  ? String(root.service.effectiveTechnicianId) : ""
                 onChanged: function(value) {
-                  if (!root.service) return
+                  if (!root.service || root.service.demoMode) return
                   var id = parseInt(value, 10) || 0
                   root.service.saveConfig({ technicianId: id, technicianName: root.service.userNames[String(id)] || "" })
                 }
@@ -704,7 +722,8 @@ Item {
                 fontFamily: root.family
                 foreground: root.foreground
                 options: root.service ? root.service.statuses.map(function(s) { return { value: String(s.Id), label: String(s.Name) } }) : []
-                value: root.service && root.service.defaultStatusId ? String(root.service.defaultStatusId) : ""
+                value: root.service && root.service.effectiveDefaultStatusId
+                  ? String(root.service.effectiveDefaultStatusId) : ""
                 onChanged: function(value) { settingsPane.saveInt("defaultStatusId", value) }
               }
 
@@ -715,7 +734,8 @@ Item {
                 fontFamily: root.family
                 foreground: root.foreground
                 options: root.service ? root.service.groups.map(function(g) { return { value: String(g.Id), label: String(g.Name) } }) : []
-                value: root.service && root.service.defaultGroupId ? String(root.service.defaultGroupId) : ""
+                value: root.service && root.service.effectiveDefaultGroupId
+                  ? String(root.service.effectiveDefaultGroupId) : ""
                 onChanged: function(value) { settingsPane.saveInt("defaultGroupId", value) }
               }
 
@@ -726,7 +746,8 @@ Item {
                 fontFamily: root.family
                 foreground: root.foreground
                 options: root.service ? root.service.types.map(function(t) { return { value: String(t.Id), label: String(t.Name) } }) : []
-                value: root.service && root.service.defaultTypeId ? String(root.service.defaultTypeId) : ""
+                value: root.service && root.service.effectiveDefaultTypeId
+                  ? String(root.service.effectiveDefaultTypeId) : ""
                 onChanged: function(value) { settingsPane.saveInt("defaultTypeId", value) }
               }
             }
@@ -760,7 +781,7 @@ Item {
               options: root.service ? root.service.statuses.map(function(s) { return { value: String(s.Id), label: String(s.Name) } }) : []
               values: root.service ? root.service.effectiveStatusIds.map(String) : []
               onChanged: function(values) {
-                if (!root.service) return
+                if (!root.service || root.service.demoMode) return
                 var ids = []
                 for (var i = 0; i < values.length; i++) {
                   var n = parseInt(values[i], 10)

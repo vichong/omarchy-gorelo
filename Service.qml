@@ -4,6 +4,7 @@ import Quickshell.Io
 import "Api.js" as Api
 import "Model.js" as Model
 import "ConfigStore.js" as ConfigStore
+import "Demo.js" as Demo
 
 // Owner of all Gorelo state: configuration, the API key (memory only, loaded
 // from the keyring), reference data, the ticket poll loop, desktop
@@ -23,6 +24,7 @@ QtObject {
   // ------------------------------------------------------------ config
 
   property string region: "usw"
+  property bool demoMode: false
   property int technicianId: 0
   property string technicianName: ""
   property int pollSeconds: 90
@@ -64,6 +66,7 @@ QtObject {
   function currentConfig() {
     return {
       region: root.region,
+      demoMode: root.demoMode,
       technicianId: root.technicianId,
       technicianName: root.technicianName,
       pollSeconds: root.pollSeconds,
@@ -95,11 +98,13 @@ QtObject {
     var c = parsed.config
     root.configError = parsed.error
     var regionChanged = root.region !== c.region
+    var demoChanged = root.demoMode !== c.demoMode
     var filterChanged = JSON.stringify(root.statusIds) !== JSON.stringify(c.statusIds)
       || root.technicianId !== c.technicianId
     var tabChanged = root.activeTab !== c.activeTab
 
     root.region = c.region
+    root.demoMode = c.demoMode
     root.technicianId = c.technicianId
     root.technicianName = c.technicianName
     root.pollSeconds = c.pollSeconds
@@ -119,7 +124,11 @@ QtObject {
     var first = !root.configLoaded
     root.configLoaded = true
 
-    if (first || regionChanged) {
+    if (first || regionChanged || demoChanged) {
+      if (root.demoMode) {
+        root.beginDemoConnection()
+        return
+      }
       // Supersede every in-flight request before dropping the key: a late
       // response for the old region must not land in the new one's state.
       root.supersedeRequests()
@@ -175,13 +184,13 @@ QtObject {
 
   // Memory only. Never written to config, logs, IPC output or argv.
   property string apiKey: ""
-  readonly property bool hasKey: apiKey !== ""
+  readonly property bool hasKey: demoMode || apiKey !== ""
   readonly property bool credentialBusy: credentials.busy
   property var pendingConnection: null
   property string pendingLookupRegion: ""
 
   onCredentialBusyChanged: {
-    if (root.credentialBusy || !root.pendingLookupRegion) return
+    if (root.demoMode || root.credentialBusy || !root.pendingLookupRegion) return
     var region = root.pendingLookupRegion
     root.pendingLookupRegion = ""
     if (region === root.region && !root.hasKey) credentials.lookup(region)
@@ -189,6 +198,7 @@ QtObject {
 
   property CredentialManager credentials: CredentialManager {
     onKeyReady: function(key, region) {
+      if (root.demoMode) return
       if (region !== root.region) return
       if (root.keyHasUnsupportedCharacters(key)) {
         root.apiKey = ""
@@ -199,6 +209,7 @@ QtObject {
       root.connect()
     }
     onMissing: function(region) {
+      if (root.demoMode) return
       if (region !== root.region) return
       root.apiKey = ""
       root.phase = "idle"
@@ -207,6 +218,7 @@ QtObject {
       root.lastErrorCode = ""
     }
     onCleared: function(region) {
+      if (root.demoMode) return
       if (region !== root.region) return
       root.apiKey = ""
       root.supersedeRequests()
@@ -217,6 +229,7 @@ QtObject {
       root.lastErrorCode = ""
     }
     onFailed: function(message, region) {
+      if (root.demoMode) return
       if (region && region !== root.region) return
       root.phase = "error"
       root.lastError = message
@@ -231,6 +244,7 @@ QtObject {
   }
 
   function applyConnection(region, key) {
+    if (root.demoMode) return false
     if (!Api.isRegion(region)) return false
     if (root.credentialBusy) {
       root.lastError = "Wait for the current keyring operation to finish."
@@ -270,6 +284,7 @@ QtObject {
   }
 
   function removeConnection() {
+    if (root.demoMode) return
     if (root.credentialBusy) {
       root.lastError = "Wait for the current keyring operation to finish."
       root.lastErrorKind = "credential"
@@ -277,6 +292,21 @@ QtObject {
       return
     }
     credentials.clear(root.region)
+  }
+
+  // A mode switch applies immediately. Demo fixtures never enter config;
+  // only this boolean is persisted.
+  function setDemoMode(enabled) {
+    var next = enabled === true
+    if (root.demoMode === next) return true
+    if (root.credentialBusy) {
+      root.lastError = "Wait for the current keyring operation to finish."
+      root.lastErrorKind = "credential"
+      root.lastErrorCode = ""
+      return false
+    }
+    root.saveConfig({ demoMode: next })
+    return true
   }
 
   // ------------------------------------------------------------ state
@@ -290,7 +320,12 @@ QtObject {
   property int generation: 0
   readonly property bool configured: hasKey
   readonly property bool connected: phase === "connected"
-  readonly property bool needsTechnician: connected && technicianId === 0
+  readonly property int effectiveTechnicianId: demoMode ? 1 : technicianId
+  readonly property string effectiveTechnicianName: demoMode ? "Demo Tech" : technicianName
+  readonly property int effectiveDefaultStatusId: demoMode ? 1 : defaultStatusId
+  readonly property int effectiveDefaultGroupId: demoMode ? 1 : defaultGroupId
+  readonly property int effectiveDefaultTypeId: demoMode ? 1 : defaultTypeId
+  readonly property bool needsTechnician: connected && effectiveTechnicianId === 0
 
   property var statuses: []
   property var types: []
@@ -338,7 +373,14 @@ QtObject {
   property int rowsRevision: 0
   property ListModel rows: ListModel {}
 
-  readonly property var effectiveStatusIds: statusIds.length ? statusIds : Api.defaultStatusIds(statuses)
+  property var demoTicketStore: []
+  property var demoDeviceStore: []
+  property int demoPollCount: 0
+  property bool demoNotificationShown: false
+
+  readonly property var effectiveStatusIds: demoMode
+    ? Api.defaultStatusIds(statuses)
+    : (statusIds.length ? statusIds : Api.defaultStatusIds(statuses))
   readonly property var mineCounts: { root.ticketRevision; return Model.counts(root.mineTickets) }
   readonly property var allCounts: { root.ticketRevision; return Model.counts(root.allTickets) }
 
@@ -352,6 +394,47 @@ QtObject {
     if (c.urgent) parts.push(c.urgent + " urgent")
     if (root.mineTruncated) parts.push("showing first 500")
     return parts.join(" · ")
+  }
+
+  function loadDemoReference() {
+    var reference = Demo.demoReference()
+    root.statuses = Api.sortStatuses(reference.statuses)
+    root.types = reference.types
+    root.groups = reference.groups
+    root.users = reference.users
+    root.clients = reference.clients
+    root.statusNames = Api.nameMap(root.statuses)
+    root.clientNames = Api.nameMap(root.clients)
+    root.userNames = Api.nameMap(root.users, Api.userDisplayName)
+    root.referenceLoaded = true
+  }
+
+  function beginDemoConnection() {
+    root.supersedeRequests()
+    reconnectTimer.stop()
+    root.apiKey = ""
+    root.pendingConnection = null
+    root.pendingLookupRegion = ""
+    root.resetData()
+    root.demoTicketStore = Demo.demoTickets(Date.now())
+    root.demoDeviceStore = Demo.demoDevices(Date.now())
+    root.demoPollCount = 0
+    root.loadDemoReference()
+    root.phase = "connecting"
+    root.lastError = ""
+    root.lastErrorKind = ""
+    root.lastErrorCode = ""
+    demoConnectTimer.restart()
+  }
+
+  property Timer demoConnectTimer: Timer {
+    interval: 400
+    onTriggered: {
+      if (!root.demoMode || root.phase !== "connecting") return
+      root.phase = "connected"
+      root.pollBackoff = 0
+      root.poll()
+    }
   }
 
   function resetData() {
@@ -391,6 +474,9 @@ QtObject {
     root.mineTruncated = false
     root.allTruncated = false
     root.pollBackoff = 0
+    root.demoTicketStore = []
+    root.demoDeviceStore = []
+    root.demoPollCount = 0
     root.rows.clear()
     root.deviceRows.clear()
     root.rowsRevision++
@@ -470,6 +556,11 @@ QtObject {
   // callback(result) where result is Api.parseResponse's shape. Responses
   // from a superseded generation (region switch, key removal) are dropped.
   function request(method, path, body, callback) {
+    if (root.demoMode) {
+      callback({ ok: false, status: 0, kind: "config", error: "Network requests are disabled in demo mode.",
+                 code: "", data: null, pagination: null })
+      return null
+    }
     if (!root.hasKey) {
       callback({ ok: false, status: 0, kind: "credential", error: "No API key configured.",
                  code: "", data: null, pagination: null })
@@ -558,6 +649,10 @@ QtObject {
   }
 
   function connect() {
+    if (root.demoMode) {
+      root.beginDemoConnection()
+      return
+    }
     if (!root.hasKey) return
     root.supersedeRequests()
     reconnectTimer.stop()
@@ -582,7 +677,8 @@ QtObject {
 
   function retryConnection() {
     root.reconnectAttempts = 0
-    if (root.hasKey) root.connect()
+    if (root.demoMode) root.beginDemoConnection()
+    else if (root.hasKey) root.connect()
     else if (!root.credentialBusy) credentials.lookup(root.region)
   }
 
@@ -597,6 +693,14 @@ QtObject {
 
   // statuses → types → groups → users → clients, in that order, then done(ok).
   function loadReference(done) {
+    if (root.demoMode) {
+      root.loadDemoReference()
+      root.lastError = ""
+      root.lastErrorKind = ""
+      root.lastErrorCode = ""
+      done(true)
+      return
+    }
     var gen = root.generation
     function bail(result) {
       if (gen !== root.generation) return
@@ -673,7 +777,7 @@ QtObject {
     root.pollRequested = false
     var gen = root.generation
     var serial = root.pollSerial
-    var technician = root.technicianId
+    var technician = root.effectiveTechnicianId
     var statusFilter = root.effectiveStatusIds.slice()
     var mineParams = {
       PageSize: 100, SortBy: "updatedOn", SortOrder: "desc",
@@ -740,6 +844,37 @@ QtObject {
       })
     }
 
+    if (root.demoMode) {
+      // The second poll introduces one new urgent assignment, exactly once
+      // per shell session, so users can see the notification feature.
+      if (root.demoPollCount === 1 && !root.demoNotificationShown) {
+        for (var d = 0; d < root.demoTicketStore.length; d++) {
+          var candidate = root.demoTicketStore[d]
+          if (Model.priorityIdOf(candidate) === 1
+              && candidate.LeadAssigneeId !== root.effectiveTechnicianId) {
+            candidate.LeadAssigneeId = root.effectiveTechnicianId
+            candidate.UpdatedOn = new Date().toISOString()
+            candidate.IsUnread = true
+            candidate.LastUpdate = { Summary: "Assigned to Demo Tech for immediate follow-up." }
+            root.demoNotificationShown = true
+            break
+          }
+        }
+      }
+      root.demoPollCount++
+      var demoAll = []
+      var demoMine = []
+      for (var m = 0; m < root.demoTicketStore.length; m++) {
+        var demoTicket = root.demoTicketStore[m]
+        var statusId = demoTicket.Status && demoTicket.Status.Id
+        if (statusFilter.indexOf(statusId) === -1) continue
+        demoAll.push(demoTicket)
+        if (demoTicket.LeadAssigneeId === technician) demoMine.push(demoTicket)
+      }
+      finishPoll(demoMine, demoAll, false, false)
+      return
+    }
+
     if (technician) {
       root.requestAll("/v1/tickets", mineParams, 5, function(mine, err, mineWasTruncated) {
         if (err) { pollFailed(err); return }
@@ -755,7 +890,7 @@ QtObject {
       clientNames: root.clientNames,
       userNames: root.userNames,
       statusNames: root.statusNames,
-      technicianId: root.technicianId,
+      technicianId: root.effectiveTechnicianId,
       now: Date.now()
     }
   }
@@ -774,6 +909,14 @@ QtObject {
 
   function loadDevices() {
     if (!root.connected || root.devicesLoading) return false
+    if (root.demoMode) {
+      root.devices = root.demoDeviceStore.slice()
+      root.devicesLoaded = true
+      root.devicesTruncated = false
+      root.devicesError = ""
+      root.rebuildRows()
+      return true
+    }
     var gen = root.generation
     var serial = ++root.deviceLoadSerial
     root.devicesLoading = true
@@ -846,6 +989,17 @@ QtObject {
     root.searchPendingQuery = query
     root.searchPendingCount = 2
     root.rebuildRows()
+    if (root.demoMode) {
+      root.searchResults = Model.filterTickets(root.demoTicketStore, root.rowContext(), query)
+      root.deviceHits = Model.filterDevices(root.demoDeviceStore, root.rowContext(), query, 200)
+      root.searching = false
+      root.deviceSearching = false
+      root.searchPendingQuery = ""
+      root.searchPendingCount = 0
+      root.searchRequests = []
+      root.rebuildRows()
+      return true
+    }
     var params = { Query: query, PageSize: 50, SortBy: "updatedOn", SortOrder: "desc" }
     var ticketRequest = root.request("GET", "/v1/tickets" + Api.query(params), null, function(result) {
       if (gen !== root.generation || serial !== root.searchSerial) return
@@ -1047,6 +1201,18 @@ QtObject {
       if (callback) callback(false, "Not connected to Gorelo.")
       return false
     }
+    if (root.demoMode) {
+      var demoTicket = root.mutateDemoTicket(ticketId, patch, "Updated by " + root.effectiveTechnicianName + ".")
+      if (!demoTicket) {
+        root.actionError = label + " failed: Ticket not found."
+        if (callback) callback(false, "Ticket not found.")
+        return false
+      }
+      root.actionError = ""
+      if (callback) callback(true, "")
+      root.refreshAfterMutation()
+      return true
+    }
     root.pendingActions++
     root.actionError = ""
     root.request("PATCH", "/v1/tickets/" + encodeURIComponent(String(ticketId)), patch, function(r) {
@@ -1062,6 +1228,34 @@ QtObject {
     return true
   }
 
+  function mutateDemoTicket(ticketId, patch, summary) {
+    var id = String(ticketId)
+    for (var i = 0; i < root.demoTicketStore.length; i++) {
+      var ticket = root.demoTicketStore[i]
+      if (String(ticket.Id) !== id) continue
+      for (var key in patch) {
+        if (key === "StatusId") {
+          var statusId = parseInt(patch[key], 10)
+          for (var s = 0; s < root.statuses.length; s++) {
+            if (root.statuses[s].Id === statusId) {
+              ticket.StatusId = statusId
+              ticket.Status = { Id: statusId, Name: String(root.statuses[s].Name) }
+              break
+            }
+          }
+        } else if (patch[key] !== undefined) {
+          ticket[key] = patch[key]
+        }
+      }
+      ticket.UpdatedOn = new Date().toISOString()
+      ticket.IsUnread = false
+      ticket.LastUpdate = { Summary: String(summary || "Ticket updated in demo mode.") }
+      root.demoTicketStore = root.demoTicketStore.slice()
+      return ticket
+    }
+    return null
+  }
+
   // Search rows come from a snapshot, so rerun the search alongside the poll.
   function refreshAfterMutation() {
     if (root.searchActive) root.runSearch()
@@ -1074,15 +1268,15 @@ QtObject {
       if (callback) callback(false, "Invalid status.")
       return false
     }
-    return root.patchTicket(ticketId, { StatusId: id, UpdatedByName: root.technicianName || undefined }, "Status change", callback)
+    return root.patchTicket(ticketId, { StatusId: id, UpdatedByName: root.effectiveTechnicianName || undefined }, "Status change", callback)
   }
 
   function assignToMe(ticketId, callback) {
-    if (!root.technicianId) {
+    if (!root.effectiveTechnicianId) {
       if (callback) callback(false, "No technician selected.")
       return false
     }
-    return root.patchTicket(ticketId, { LeadAssigneeId: root.technicianId, UpdatedByName: root.technicianName || undefined }, "Assignment", callback)
+    return root.patchTicket(ticketId, { LeadAssigneeId: root.effectiveTechnicianId, UpdatedByName: root.effectiveTechnicianName || undefined }, "Assignment", callback)
   }
 
   function addPrivateNote(ticketId, text, callback) {
@@ -1091,10 +1285,22 @@ QtObject {
       if (callback) callback(false, !body ? "A note is required." : "Not connected to Gorelo.")
       return false
     }
+    if (root.demoMode) {
+      var demoTicket = root.mutateDemoTicket(ticketId, {}, body)
+      if (!demoTicket) {
+        root.actionError = "Note failed: Ticket not found."
+        if (callback) callback(false, "Ticket not found.")
+        return false
+      }
+      root.actionError = ""
+      if (callback) callback(true, "")
+      root.refreshAfterMutation()
+      return true
+    }
     root.pendingActions++
     root.actionError = ""
     var payload = { ConversationTypeId: Api.CONVERSATION_PRIVATE, Body: Api.escapeHtml(body) }
-    if (root.technicianName) payload.CreatedByName = root.technicianName
+    if (root.effectiveTechnicianName) payload.CreatedByName = root.effectiveTechnicianName
     root.request("POST", "/v1/tickets/" + encodeURIComponent(String(ticketId)) + "/comments", payload, function(r) {
       root.pendingActions = Math.max(0, root.pendingActions - 1)
       if (!r.ok) {
@@ -1138,7 +1344,9 @@ QtObject {
   }
 
   readonly property var createDefaults: ({
-    statusId: root.defaultStatusId, groupId: root.defaultGroupId, typeId: root.defaultTypeId
+    statusId: root.effectiveDefaultStatusId,
+    groupId: root.effectiveDefaultGroupId,
+    typeId: root.effectiveDefaultTypeId
   })
 
   function createTicket() {
@@ -1151,19 +1359,57 @@ QtObject {
     var body = {
       Title: String(d.title).trim(),
       ClientId: d.clientId,
-      StatusId: root.defaultStatusId,
-      GroupId: root.defaultGroupId,
-      TypeId: root.defaultTypeId,
+      StatusId: root.effectiveDefaultStatusId,
+      GroupId: root.effectiveDefaultGroupId,
+      TypeId: root.effectiveDefaultTypeId,
       PriorityId: d.priorityId,
       IsUnread: false
     }
     if (String(d.description || "").trim()) body.Description = String(d.description).trim()
-    if (root.technicianId) body.LeadAssigneeId = root.technicianId
-    if (root.technicianName) body.CreatedByName = root.technicianName
+    if (root.effectiveTechnicianId) body.LeadAssigneeId = root.effectiveTechnicianId
+    if (root.effectiveTechnicianName) body.CreatedByName = root.effectiveTechnicianName
 
     root.creating = true
     root.createError = ""
     var attachment = String(d.attachmentPath || "")
+    if (root.demoMode) {
+      var nextNumber = 1000
+      for (var i = 0; i < root.demoTicketStore.length; i++) {
+        nextNumber = Math.max(nextNumber, parseInt(root.demoTicketStore[i].Number, 10) || 0)
+      }
+      nextNumber++
+      var statusName = root.statusNames[String(body.StatusId)] || "New"
+      var createdTicket = {
+        Id: "demo-ticket-" + nextNumber,
+        Number: nextNumber,
+        DisplayNumber: "DEMO-" + nextNumber,
+        Title: body.Title,
+        Description: body.Description || "",
+        ClientId: body.ClientId,
+        StatusId: body.StatusId,
+        Status: { Id: body.StatusId, Name: statusName },
+        GroupId: body.GroupId,
+        TypeId: body.TypeId,
+        LeadAssigneeId: body.LeadAssigneeId || root.effectiveTechnicianId,
+        Priority: { Id: body.PriorityId, Name: Api.priorityName(body.PriorityId) },
+        UpdatedOn: new Date().toISOString(),
+        IsUnread: false,
+        IsWaitingOnThem: false,
+        LastUpdate: { Summary: body.Description || "Created from the Omarchy demo." }
+      }
+      var nextTickets = root.demoTicketStore.slice()
+      nextTickets.push(createdTicket)
+      root.demoTicketStore = nextTickets
+      root.lastCreatedId = String(createdTicket.Id)
+      if (attachment) {
+        root.uploadAttachment(createdTicket.Id, attachment, function(uploadError) {
+          root.finishCreate(createdTicket.Id, uploadError || "")
+        })
+      } else {
+        root.finishCreate(createdTicket.Id, "")
+      }
+      return true
+    }
     root.request("POST", "/v1/tickets", body, function(r) {
       if (!r.ok) {
         root.creating = false
@@ -1180,7 +1426,7 @@ QtObject {
           }
           var payload = { ConversationTypeId: Api.CONVERSATION_PRIVATE, Body: "Screenshot",
                           Attachments: [{ Name: file.Name, Url: file.Url }] }
-          if (root.technicianName) payload.CreatedByName = root.technicianName
+          if (root.effectiveTechnicianName) payload.CreatedByName = root.effectiveTechnicianName
           root.request("POST", "/v1/tickets/" + encodeURIComponent(id) + "/comments", payload, function(r2) {
             root.finishCreate(id, r2.ok ? "" : "Ticket created, but attaching the screenshot failed: " + r2.error)
           })
@@ -1280,6 +1526,12 @@ QtObject {
   }
 
   function uploadAttachment(ticketId, path, callback) {
+    if (root.demoMode) {
+      var name = Model.attachmentFileName(path) || "demo-screenshot.png"
+      root.deleteAttachment(String(path))
+      callback("", { Name: name, Url: "demo://attachment/" + encodeURIComponent(name) })
+      return
+    }
     if (root.uploadOperation || uploadProcess.running) { callback("An upload is already running.", null); return }
     if (path.indexOf('"') !== -1 || path.indexOf("\n") !== -1) { callback("Unsupported characters in the file path.", null); return }
     root.uploadOutput = ""
@@ -1416,8 +1668,9 @@ QtObject {
     var safeCode = String(root.lastErrorCode || "").replace(/[^A-Za-z0-9._-]/g, "")
     return "phase=" + root.phase
       + " region=" + root.region
+      + " demo=" + root.demoMode
       + " key=" + (root.hasKey ? "present" : "absent")
-      + " technician=" + (root.technicianId ? "set" : "unset")
+      + " technician=" + (root.effectiveTechnicianId ? "set" : "unset")
       + " reference=" + root.referenceLoaded
       + " mine=" + root.mineTickets.length
       + " all=" + root.allTickets.length

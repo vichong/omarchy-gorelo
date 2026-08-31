@@ -3,19 +3,20 @@ const ConfigStore = loadModule("ConfigStore.js")
 
 const empty = ConfigStore.parse("")
 equal(empty.error, "", "empty config is fine")
-equal([empty.config.region, empty.config.pollSeconds, empty.config.notify, empty.config.notifyMinPriority, empty.config.activeTab],
-  ["usw", 90, true, 3, "mine"], "defaults")
+equal([empty.config.region, empty.config.demoMode, empty.config.pollSeconds, empty.config.notify, empty.config.notifyMinPriority, empty.config.activeTab],
+  ["usw", false, 90, true, 3, "mine"], "defaults")
 
 const bad = ConfigStore.parse("{nope")
 equal(bad.error, "config.json is not valid JSON", "invalid json reported")
 equal(bad.config.region, "usw", "invalid json still yields defaults")
 
 const parsed = ConfigStore.parse(JSON.stringify({
-  region: "aue", technicianId: "12", pollSeconds: 5, notifyMinPriority: 9,
+  region: "aue", demoMode: true, technicianId: "12", pollSeconds: 5, notifyMinPriority: 9,
   statusIds: [1, "2", 2, -1, "x"], ticketUrlTemplate: "  ", activeTab: "all", apiKey: "leak"
 }))
 equal([parsed.config.region, parsed.config.technicianId, parsed.config.pollSeconds, parsed.config.notifyMinPriority],
   ["aue", 12, 30, 5], "coercion and clamping")
+equal(parsed.config.demoMode, true, "demo mode is explicitly enabled")
 equal(parsed.config.statusIds, [1, 2], "status ids deduplicated and validated")
 equal(parsed.config.ticketUrlTemplate, ConfigStore.DEFAULT_TICKET_URL, "blank template falls back")
 equal(parsed.config.deviceUrlTemplate, ConfigStore.DEFAULT_DEVICE_URL, "device template defaults")

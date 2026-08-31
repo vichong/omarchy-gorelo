@@ -233,7 +233,7 @@ CursorSurface {
         }
 
         Button {
-          visible: row.gorelo && !row.mine && row.gorelo.technicianId > 0
+          visible: row.gorelo && !row.mine && row.gorelo.effectiveTechnicianId > 0
           bordered: true
           text: "Assign to me"
           foreground: row.fg

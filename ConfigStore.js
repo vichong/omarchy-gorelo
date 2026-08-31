@@ -6,7 +6,7 @@
 var REGIONS = ["usw", "aue"]
 
 var KEYS = [
-  "region", "technicianId", "technicianName", "pollSeconds", "notify",
+  "region", "demoMode", "technicianId", "technicianName", "pollSeconds", "notify",
   "notifyMinPriority", "statusIds", "defaultStatusId", "defaultGroupId",
   "defaultTypeId", "defaultClientId", "ticketUrlTemplate", "deviceUrlTemplate", "activeTab",
   "openAfterCreate", "browserDesktop"
@@ -56,6 +56,7 @@ function parse(text) {
     error: error,
     config: {
       region: REGIONS.indexOf(raw.region) !== -1 ? raw.region : "usw",
+      demoMode: raw.demoMode === true,
       technicianId: Math.max(0, intOr(raw.technicianId, 0)),
       technicianName: typeof raw.technicianName === "string" ? raw.technicianName : "",
       pollSeconds: clampPoll(raw.pollSeconds),

@@ -169,7 +169,7 @@ Panel {
     switch (phase) {
     case "connected":
       if (gorelo.lastError) return "Retrying · " + gorelo.lastError
-      return gorelo.activitySummary || "Connected"
+      return (gorelo.demoMode ? "Demo · " : "") + (gorelo.activitySummary || "Connected")
     case "connecting": return "Connecting…"
     case "error": return gorelo.transientError && gorelo.lastError
       ? "Retrying · " + gorelo.lastError : "Disconnected"

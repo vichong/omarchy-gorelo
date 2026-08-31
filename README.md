@@ -13,6 +13,17 @@ desk, not a managed endpoint.
 > marks belong to their respective owners and are used here only to identify
 > what this plugin connects.
 
+## Screenshots
+
+Demo mode on the stock Omarchy *Quattro* wallpaper — no tenancy required to
+get this far.
+
+| Queue | Search: tickets and devices |
+|:---:|:---:|
+| ![Ticket queue popup](docs/screenshots/queue.png) | ![Search matching Globex tickets and devices](docs/screenshots/search.png) |
+| **New ticket** | **Settings** |
+| ![New ticket overlay](docs/screenshots/new-ticket.png) | ![Settings overlay](docs/screenshots/settings.png) |
+
 ## What you get
 
 - **Bar widget** — the Gorelo mark with a count of open tickets assigned to
@@ -95,6 +106,11 @@ omarchy plugin enable io.github.vichong.gorelo right
 Click the gear in the popup header. From a
 terminal: `omarchy-shell gorelo settings`.
 
+**Try it without a tenancy:** turn on **Demo mode** under *Connection*. The
+widget starts a fake MSP locally, with sample tickets and devices; it does not
+read the keyring or contact Gorelo. Turn it off to return to your normal region
+and stored API key.
+
 1. Pick your **region** — the one your Gorelo tenancy was created in.
    US keys talk to `api.usw.gorelo.io`, Australian keys to
    `api.aue.gorelo.io`. Keys are stored per region.
@@ -168,6 +184,7 @@ The plugin never touches any other configuration.
 node tests/test_api.js
 node tests/test_model.js
 node tests/test_config.js
+node tests/test_demo.js
 omarchy plugin validate .
 ```
 
