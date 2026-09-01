@@ -16,6 +16,13 @@ import "ConfigStore.js" as ConfigStore
 Item {
   id: root
 
+  // Every control in the overlay shares one height, measured from a bordered
+  // Button: the kit's dropdowns (fixed controlHeight) and text fields (font +
+  // input padding) otherwise land a few pixels apart from the buttons beside
+  // them.
+  readonly property int controlHeight: controlReference.implicitHeight
+  Button { id: controlReference; visible: false; bordered: true; text: "Reference"; fontFamily: root.family }
+
   // Injected by the shell's panel loader.
   property var shell: null
   property var manifest: null
@@ -289,6 +296,7 @@ Item {
             FieldLabel { text: "Client" }
 
             SearchableDropdown {
+              rowHeight: root.controlHeight
               id: clientPicker
               popupMinHeight: Style.space(400)
               width: newColumn.width
@@ -315,6 +323,8 @@ Item {
             FieldLabel { text: "Title" }
 
             TextField {
+              height: root.controlHeight
+              verticalAlignment: TextInput.AlignVCenter
               id: titleField
               width: newColumn.width
               text: newPane.draft.title
@@ -334,6 +344,7 @@ Item {
               FieldLabel { text: "Priority" }
 
               Dropdown {
+                rowHeight: root.controlHeight
                 id: priorityPicker
                 width: Style.space(180)
                 showLabel: false
@@ -592,6 +603,8 @@ Item {
               }
 
               TextField {
+                height: root.controlHeight
+                verticalAlignment: TextInput.AlignVCenter
                 width: settingsColumn.width
                 text: root.keyDraft
                 password: true
@@ -671,6 +684,7 @@ Item {
               FieldLabel { text: "Technician" }
 
               SearchableDropdown {
+                rowHeight: root.controlHeight
                 id: technicianPicker
                 popupMinHeight: Style.space(400)
                 width: settingsColumn.width
@@ -717,6 +731,7 @@ Item {
               spacing: Style.spacing.xl
 
               StatusDropdown {
+                rowHeight: root.controlHeight
                 id: statusPicker
                 label: "Status"
                 width: Style.space(180)
@@ -731,6 +746,7 @@ Item {
               }
 
               Dropdown {
+                rowHeight: root.controlHeight
                 id: groupPicker
                 label: "Group"
                 width: Style.space(180)
@@ -743,6 +759,7 @@ Item {
               }
 
               Dropdown {
+                rowHeight: root.controlHeight
                 id: typePicker
                 label: "Type"
                 width: Style.space(180)
@@ -776,6 +793,7 @@ Item {
             SectionTitle { text: "Queue" }
 
             MultiSelect {
+              rowHeight: root.controlHeight
               id: shownStatuses
               label: "Statuses shown"
               width: settingsColumn.width
@@ -831,6 +849,7 @@ Item {
             }
 
             Dropdown {
+              rowHeight: root.controlHeight
               id: notifyLevel
               label: "Notify for"
               width: Style.space(260)
@@ -858,6 +877,7 @@ Item {
             SectionTitle { text: "Links" }
 
             Dropdown {
+              rowHeight: root.controlHeight
               id: browserPicker
               label: "Open Gorelo links with"
               width: Style.space(320)
@@ -888,6 +908,8 @@ Item {
               FieldLabel { text: "Ticket URL" }
 
               TextField {
+                height: root.controlHeight
+                verticalAlignment: TextInput.AlignVCenter
                 id: urlField
                 width: settingsColumn.width
                 text: root.service ? root.service.ticketUrlTemplate : ""
@@ -908,6 +930,8 @@ Item {
               FieldLabel { text: "Device URL" }
 
               TextField {
+                height: root.controlHeight
+                verticalAlignment: TextInput.AlignVCenter
                 id: deviceUrlField
                 width: settingsColumn.width
                 text: root.service ? root.service.deviceUrlTemplate : ""
