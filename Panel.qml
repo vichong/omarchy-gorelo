@@ -155,18 +155,13 @@ Panel {
   readonly property color hoverFill: Style.hoverFillFor(fg, Color.accent)
   readonly property color selectedFill: Style.selectedFillFor(fg, Color.accent)
 
+  // The bar stays monochrome like the stock widgets: attention is carried by
+  // weight (count) and the popup, never by colour. Disconnected dims.
   readonly property color iconColor: {
     var base = bar ? bar.barForeground : Color.foreground
-    if (root.phase === "error") return bar ? bar.urgent : Color.urgent
     if (!root.connected) return Qt.darker(base, 1.5)
-    if (root.iconCarriesAttention) {
-      return root.counts.urgent > 0 ? (bar ? bar.urgent : Color.urgent) : Color.accent
-    }
     return base
   }
-  readonly property bool iconCarriesAttention: root.connected
-    && (!root.showCount || button.vertical)
-    && (root.counts.urgent > 0 || root.counts.unread > 0)
   readonly property bool attention: root.connected && (root.counts.urgent > 0 || root.counts.unread > 0)
 
   readonly property string heroMeta: {
@@ -245,7 +240,7 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
         iconSize: Style.bar.iconCanvas
         color: root.iconColor
-        colorful: root.colorful && !root.iconCarriesAttention
+        colorful: root.colorful
       }
 
       Text {
@@ -253,8 +248,7 @@ Panel {
         textFormat: Text.PlainText
         visible: !button.vertical && root.showCount && root.connected && root.counts.total > 0
         text: String(root.counts.total)
-        color: root.counts.urgent > 0 ? (root.bar ? root.bar.urgent : Color.urgent)
-             : (root.counts.unread > 0 ? Color.accent : root.iconColor)
+        color: root.iconColor
         font.family: root.family
         font.pixelSize: Style.font.body
         font.weight: root.attention ? Font.DemiBold : Font.Normal

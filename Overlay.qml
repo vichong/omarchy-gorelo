@@ -139,10 +139,12 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.spacing.lg
 
+            // Same mark as the popup hero: display size, brand colours.
             GoreloIcon {
               anchors.verticalCenter: parent.verticalCenter
-              iconSize: Style.font.heading
+              iconSize: Style.font.display
               color: root.foreground
+              colorful: true
             }
 
             Text {
@@ -714,13 +716,15 @@ Item {
             Row {
               spacing: Style.spacing.xl
 
-              Dropdown {
+              StatusDropdown {
                 id: statusPicker
                 label: "Status"
                 width: Style.space(180)
                 fontFamily: root.family
                 foreground: root.foreground
-                options: root.service ? root.service.statuses.map(function(s) { return { value: String(s.Id), label: String(s.Name) } }) : []
+                options: root.service ? root.service.statuses.map(function(s) {
+                  return { value: String(s.Id), label: String(s.Name), icon: Api.statusIcon(s), color: Api.statusColor(s) }
+                }) : []
                 value: root.service && root.service.effectiveDefaultStatusId
                   ? String(root.service.effectiveDefaultStatusId) : ""
                 onChanged: function(value) { settingsPane.saveInt("defaultStatusId", value) }

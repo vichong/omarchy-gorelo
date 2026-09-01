@@ -27,9 +27,9 @@ get this far.
 ## What you get
 
 - **Bar widget** — the Gorelo mark with a count of open tickets assigned to
-  you. Accent-coloured when something is unread, urgent-coloured when an
-  Urgent/High ticket is in your queue. Left click opens the queue, right
-  click opens a new ticket, middle click refreshes.
+  you. Like the stock widgets it stays in the bar's foreground colour; the
+  count turns bold when something is unread or urgent. Left click opens the
+  queue, right click opens a new ticket, middle click refreshes.
 - **Queue popup** — *Mine* and *All open* tabs, sorted urgent-first then by
   last update. Each row shows number, title, status (with its Gorelo colour
   and icon), client, age, unread and "waiting on client" state. Click or Enter unfolds a row: status dropdown,
