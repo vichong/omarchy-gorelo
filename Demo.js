@@ -16,11 +16,13 @@ function demoReference() {
       { Id: 4, Name: "Wayne Enterprises" }
     ],
     statuses: [
-      { Id: 1, Name: "New", SortOrder: 10, Color: "#FF5252", BaseStatusId: 1 },
-      { Id: 2, Name: "In Progress", SortOrder: 20, Color: "#DF7E00", BaseStatusId: 2 },
-      { Id: 3, Name: "Waiting on Client", SortOrder: 30, Color: "#2196F3", BaseStatusId: 6 },
-      { Id: 4, Name: "Resolved", SortOrder: 40, Color: "#4CAF50", BaseStatusId: 3 },
-      { Id: 5, Name: "Closed", SortOrder: 50, Color: "#939dac", BaseStatusId: 4 }
+      // Gorelo's out-of-the-box statuses and colours (as created with a new
+      // tenancy): New, Open, On Hold, Solved, Closed.
+      { Id: 1, Name: "New", SortOrder: 1, Color: "#FF5252", BaseStatusId: 1 },
+      { Id: 2, Name: "Open", SortOrder: 1, Color: "#DF7E00", BaseStatusId: 2 },
+      { Id: 3, Name: "On Hold", SortOrder: 1, Color: "#2196F3", BaseStatusId: 6 },
+      { Id: 4, Name: "Solved", SortOrder: 1, Color: "#4CAF50", BaseStatusId: 3 },
+      { Id: 5, Name: "Closed", SortOrder: 1, Color: "#939dac", BaseStatusId: 4 }
     ],
     groups: [
       { Id: 1, Name: "Service Desk" },

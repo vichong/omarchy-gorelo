@@ -43,7 +43,7 @@ const store = Demo.createStore(now)
 equal([store.tickets.length, store.devices.length, store.showcaseCount], [14, 8, 0], "store starts from fixtures")
 const patched = Demo.applyPatch(store, "demo-ticket-1042", { StatusId: 3, LeadAssigneeId: 2 }, now + 1000)
 equal([patched.ticket.Status.Name, patched.ticket.LeadAssigneeId, patched.ticket.IsUnread],
-  ["Waiting on Client", 2, false], "patch updates status and assignment")
+  ["On Hold", 2, false], "patch updates status and assignment")
 equal(store.tickets.find(ticket => ticket.Id === "demo-ticket-1042").StatusId, 1, "patch does not mutate input")
 const commented = Demo.addComment(patched.store, "demo-ticket-1042", { PlainBody: "Checked backups" }, now + 2000)
 equal(commented.ticket.LastUpdate.Summary, "Checked backups", "comment becomes the demo summary")
