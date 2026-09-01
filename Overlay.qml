@@ -944,25 +944,27 @@ Item {
                 text: "{id} and {name} are filled in; {name} is the URL-encoded computer name."
               }
             }
+          }
 
-            // About: version comes from the manifest so it never drifts from the tag.
-            Row {
-              width: settingsColumn.width
-              spacing: Style.spacing.xs
+          PanelSeparator { width: settingsColumn.width }
 
-              Caption {
-                text: "Gorelo for Omarchy v" + (root.manifest && root.manifest.version ? root.manifest.version : "?") + " \u00b7"
-              }
+          // ---- about: version comes from the manifest so it never drifts from the tag.
+          Row {
+            width: settingsColumn.width
+            spacing: Style.spacing.xs
 
-              Caption {
-                id: repoLink
-                readonly property string url: "https://github.com/vichong/omarchy-gorelo"
-                text: "github.com/vichong/omarchy-gorelo"
-                color: repoHover.hovered ? root.foreground : root.muted
-                font.underline: repoHover.hovered
-                HoverHandler { id: repoHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: if (root.service) root.service.openUrl(repoLink.url) }
-              }
+            Caption {
+              text: "Gorelo for Omarchy v" + (root.manifest && root.manifest.version ? root.manifest.version : "?") + " \u00b7"
+            }
+
+            Caption {
+              id: repoLink
+              readonly property string url: "https://github.com/vichong/omarchy-gorelo"
+              text: "github.com/vichong/omarchy-gorelo"
+              color: repoHover.hovered ? root.foreground : root.muted
+              font.underline: repoHover.hovered
+              HoverHandler { id: repoHover; cursorShape: Qt.PointingHandCursor }
+              TapHandler { onTapped: if (root.service) root.service.openUrl(repoLink.url) }
             }
           }
         }
