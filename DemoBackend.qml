@@ -7,7 +7,6 @@ import "Model.js" as Model
 QtObject {
   id: root
   property var store: Demo.createStore(Date.now())
-  property int generation: 0
   property var deleteAttachment: null
   property var referenceCallback: null
 
@@ -55,7 +54,7 @@ QtObject {
     if (root.deleteAttachment) root.deleteAttachment(String(path))
     callback(root.success({ Name: name, Url: "demo://attachment/" + encodeURIComponent(name) }))
   }
-  function supersede() { referenceDelay.stop(); root.referenceCallback = null; root.generation++ }
+  function supersede() { referenceDelay.stop(); root.referenceCallback = null }
   function reset() {
     var consumed = root.store && root.store.showcased === true
     root.store = Demo.createStore(Date.now())

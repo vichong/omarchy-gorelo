@@ -18,6 +18,8 @@ var PRIORITIES = [
 ]
 
 var CONVERSATION_PRIVATE = 2
+var DEFAULT_TICKET_URL = "https://app.gorelo.io/ticket/ticket-detail/{id}"
+var DEFAULT_DEVICE_URL = "https://app.gorelo.io/asset/device-detail/{id}?hostName={name}"
 
 function errorResult(kind, message) {
   return { ok: false, status: 0, kind: String(kind || ""), error: String(message || ""),
@@ -154,7 +156,7 @@ function userDisplayName(user) {
 
 function ticketUrl(template, ticket) {
   if (!ticket) return ""
-  var t = template || "https://app.gorelo.io/ticket/ticket-detail/{id}"
+  var t = template || DEFAULT_TICKET_URL
   return t
     .replace("{id}", encodeURIComponent(String(ticket.Id || "")))
     .replace("{number}", encodeURIComponent(String(ticket.Number || "")))
@@ -163,7 +165,7 @@ function ticketUrl(template, ticket) {
 
 function deviceUrl(template, device) {
   if (!device) return ""
-  var t = template || "https://app.gorelo.io/asset/device-detail/{id}?hostName={name}"
+  var t = template || DEFAULT_DEVICE_URL
   return t
     .replace("{id}", encodeURIComponent(String(device.Id || "")))
     .replace("{name}", encodeURIComponent(String(device.Name || "")))

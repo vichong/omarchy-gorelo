@@ -15,8 +15,9 @@ var KEYS = [
   "openAfterCreate", "browserDesktop"
 ]
 
-var DEFAULT_TICKET_URL = "https://app.gorelo.io/ticket/ticket-detail/{id}"
-var DEFAULT_DEVICE_URL = "https://app.gorelo.io/asset/device-detail/{id}?hostName={name}"
+var DEFAULT_TICKET_URL = Api.DEFAULT_TICKET_URL
+var DEFAULT_DEVICE_URL = Api.DEFAULT_DEVICE_URL
+var OLD_TICKET_URL = "https://app.gorelo.io/Ticket/{id}"
 
 function intOr(value, fallback) {
   var n = typeof value === "number" ? value : parseInt(value, 10)
@@ -61,6 +62,10 @@ function parse(text) {
     error = "config.json is not valid JSON"
   }
 
+  var ticketUrlTemplate = httpsTemplate(raw.ticketUrlTemplate, DEFAULT_TICKET_URL)
+  if (typeof raw.ticketUrlTemplate === "string" && raw.ticketUrlTemplate.trim() === OLD_TICKET_URL)
+    ticketUrlTemplate = DEFAULT_TICKET_URL
+
   return {
     error: error,
     config: {
@@ -77,7 +82,7 @@ function parse(text) {
       defaultStatusId: Math.max(0, intOr(raw.defaultStatusId, 0)),
       defaultGroupId: Math.max(0, intOr(raw.defaultGroupId, 0)),
       defaultTypeId: Math.max(0, intOr(raw.defaultTypeId, 0)),
-      ticketUrlTemplate: httpsTemplate(raw.ticketUrlTemplate, DEFAULT_TICKET_URL),
+      ticketUrlTemplate: ticketUrlTemplate,
       deviceUrlTemplate: httpsTemplate(raw.deviceUrlTemplate, DEFAULT_DEVICE_URL),
       activeTab: raw.activeTab === "all" ? "all" : "mine",
       openAfterCreate: raw.openAfterCreate !== false,

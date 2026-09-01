@@ -178,8 +178,9 @@ The plugin never touches any other configuration.
 - Comments posted through the API are recorded as API-authored, with your
   name attached. The plugin only ever posts *private* notes.
 - Time entries cannot be created through the API, so there is no timer.
-- The ticket URL is a template (`{id}`, `{number}`, `{displayNumber}`) because
-  the web app's path isn't documented; change it in Settings if yours differs.
+- The default ticket URL is `https://app.gorelo.io/ticket/ticket-detail/{id}`;
+  it's a template (`{id}`, `{number}`, `{displayNumber}`) that can be changed in
+  Settings if your tenancy differs.
 - The device URL is likewise configurable in Settings with `{id}` and the
   URL-encoded computer `{name}` placeholders.
 
@@ -188,10 +189,10 @@ The plugin never touches any other configuration.
 - **Remote control from the widget.** Gorelo is building *Connect v2*, a
   browser-based remote access tool (see the
   [feature post](https://feedback.gorelo.io/p/desktopcomputer-gorelo-connect-v2)).
-  Once it ships, clicking a device in the search results will start a
-  Connect session — the device click already goes through a single
-  `openDevice()` hook, so this is a URL swap — with the session opened as an
-  Omarchy web-app window that can live on its own workspace. Planned
+  Once it ships, the *Open in Gorelo* button on a device row will start a
+  Connect session — it already goes through a single `openDevice()` hook, so
+  this is a URL swap; clicking the row itself only unfolds it — with the session
+  opened as an Omarchy web-app window that can live on its own workspace. Planned
   follow-ons: a *Connect* button on tickets with linked devices, an
   in-session indicator in the bar, and "add a note to the ticket" when the
   session ends.

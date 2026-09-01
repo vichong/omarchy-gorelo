@@ -78,7 +78,10 @@ QtObject {
     configLoaded = true
     if (connectionChanged) {
       supersedeRequests(); apiKey = ""; resetData(); phase = "idle"; clearError()
-      if (root.demoMode) { demoBackend.reset(); connect(); return }
+      if (root.demoMode) {
+        pendingConnection = null; pendingLookupRegion = ""
+        demoBackend.reset(); connect(); return
+      }
       var pending = pendingConnection
       if (pending && pending.region === region && pending.key) {
         pendingConnection = null; phase = "connecting"; credentials.store(pending.key, pending.region); pending.key = ""
@@ -322,10 +325,6 @@ QtObject {
     else if (!credentialBusy) credentials.lookup(region)
   }
   function refresh() { if (!connected) retryConnection(); else poll() }
-  function refreshReference() {
-    if (!connected) { retryConnection(); return }
-    loadReference(function(ok) { if (ok) poll() })
-  }
   function loadReference(done) {
     var token = generation
     backend.loadReference(function(result) {

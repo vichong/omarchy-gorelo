@@ -44,5 +44,9 @@ equal(ConfigStore.parse(JSON.stringify({ deviceUrlTemplate: "javascript:alert(1)
   ConfigStore.DEFAULT_DEVICE_URL, "non-HTTPS device template falls back")
 equal(ConfigStore.parse(JSON.stringify({ ticketUrlTemplate: "HTTPS://x/{id}" })).config.ticketUrlTemplate,
   ConfigStore.DEFAULT_TICKET_URL, "template must start with lowercase https scheme")
+equal(ConfigStore.parse(JSON.stringify({ ticketUrlTemplate: " https://app.gorelo.io/Ticket/{id} " })).config.ticketUrlTemplate,
+  ConfigStore.DEFAULT_TICKET_URL, "old ticket template migrates to the new default")
+equal(ConfigStore.parse(JSON.stringify({ ticketUrlTemplate: " https://example.com/tickets/{id} " })).config.ticketUrlTemplate,
+  "https://example.com/tickets/{id}", "custom ticket template is untouched")
 
 done("test_config")
