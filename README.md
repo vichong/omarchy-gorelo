@@ -11,7 +11,8 @@ the desk, not a managed endpoint.
 
 > Not affiliated with or endorsed by Gorelo or Omarchy. The Gorelo and Omarchy
 > marks belong to their respective owners and are used here only to identify
-> what this plugin connects.
+> what this plugin connects. This is an independent community project,
+> provided as-is under the [MIT license](LICENSE).
 
 ## Screenshots
 

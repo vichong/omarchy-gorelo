@@ -687,7 +687,8 @@ QtObject {
   }
   function statusLine() {
     var safeCode = String(lastErrorCode || "").replace(/[^A-Za-z0-9._-]/g, "")
-    return "phase=" + phase + " region=" + region + " demo=" + (backend === demoBackend)
+    return "version=" + (manifest && manifest.version ? manifest.version : "unknown")
+      + " phase=" + phase + " region=" + region + " demo=" + (backend === demoBackend)
       + " key=" + (hasKey ? "present" : "absent")
       + " technician=" + (effectiveTechnicianId ? "set" : "unset")
       + " reference=" + referenceLoaded + " mine=" + mineTickets.length + " all=" + allTickets.length
