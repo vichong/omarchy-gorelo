@@ -145,6 +145,9 @@ ListRow {
           fontFamily: row.family
           foreground: row.fg
           width: Style.space(170)
+          // Match the neighbouring bordered Button (the kit Dropdown is a
+          // fixed controlHeight; Buttons are text + padding + border).
+          rowHeight: openButton.height
           options: row.gorelo ? row.gorelo.statuses.map(function(status) {
             return {
               value: String(status.Id),
@@ -167,6 +170,7 @@ ListRow {
           onClicked: if (row.gorelo) row.gorelo.assignToMe(row.ticketId)
         }
         Button {
+          id: openButton
           bordered: true
           text: "Open in Gorelo"
           foreground: row.fg
@@ -180,6 +184,8 @@ ListRow {
         TextField {
           id: noteField
           width: parent.width - addNote.width - parent.spacing
+          height: addNote.height
+          verticalAlignment: TextInput.AlignVCenter
           placeholderText: "Private note…"
           foreground: row.fg
           font.family: row.family
