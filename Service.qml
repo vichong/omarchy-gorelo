@@ -522,11 +522,14 @@ QtObject {
     return null
   }
 
+  // The toast's icon slot shows this coloured mark (the ticket glyph stays as
+  // the fallback when the image cannot be loaded).
+  readonly property string brandImage: Qt.resolvedUrl("assets/gorelo-mark.png").toString()
   function sendNotification(event) {
     var text = Model.notificationText(event)
     var ticket = event.ticket
     var url = urlFor(ticket)
-    var args = ["omarchy-notification-send", "--app-name", "Gorelo", "-g", Model.BRAND_ICON,
+    var args = ["omarchy-notification-send", "--app-name", "Gorelo", "-g", Model.BRAND_ICON, "--image", root.brandImage,
                 "-u", Model.priorityIdOf(ticket) === 1 ? "critical" : "normal",
                 "-r", String(Model.notificationTag(ticket.Id)),
                 Model.escapeMarkup(text.headline), Model.escapeMarkup(text.body)]
@@ -534,12 +537,12 @@ QtObject {
     Quickshell.execDetached(args)
   }
   function sendNotificationSummary(summary) {
-    Quickshell.execDetached(["omarchy-notification-send", "--app-name", "Gorelo", "-g", Model.BRAND_ICON,
+    Quickshell.execDetached(["omarchy-notification-send", "--app-name", "Gorelo", "-g", Model.BRAND_ICON, "--image", root.brandImage,
                              "-r", String(Model.notificationTag("notification-summary")),
                              "Gorelo", Model.escapeMarkup(summary)])
   }
   function toast(headline, body) {
-    Quickshell.execDetached(["omarchy-notification-send", "--app-name", "Gorelo", "-g", Model.BRAND_ICON,
+    Quickshell.execDetached(["omarchy-notification-send", "--app-name", "Gorelo", "-g", Model.BRAND_ICON, "--image", root.brandImage,
                              "-t", "4000", Model.escapeMarkup(headline), Model.escapeMarkup(body || "")])
   }
   function openUrl(url) {

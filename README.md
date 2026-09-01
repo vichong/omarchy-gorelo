@@ -40,7 +40,8 @@ get this far.
   tickets and device names across the server too, including closed tickets;
   unfold a device for its details and an *Open in Gorelo* button.
 - **Notifications** — when a ticket is assigned to you, or one of yours gets
-  an unread update. Click the notification to open the ticket. Threshold by
+  an unread update, shown with the Gorelo mark. Click the notification to open
+  the ticket. Threshold by
   priority.
 - **New ticket overlay** — client (searchable), title, priority, description
   and an *Add screenshot…* button that hides the overlay, runs the Omarchy

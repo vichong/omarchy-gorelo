@@ -16,11 +16,11 @@ function demoReference() {
       { Id: 4, Name: "Wayne Enterprises" }
     ],
     statuses: [
-      { Id: 1, Name: "New", SortOrder: 10, Color: "#e72525", BaseStatusId: 1 },
-      { Id: 2, Name: "In Progress", SortOrder: 20, Color: "#f29100", BaseStatusId: 2 },
-      { Id: 3, Name: "Waiting on Client", SortOrder: 30, Color: "#b5ce00", BaseStatusId: 6 },
-      { Id: 4, Name: "Resolved", SortOrder: 40, Color: "#71d0bb", BaseStatusId: 3 },
-      { Id: 5, Name: "Closed", SortOrder: 50, Color: "#6fba2c", BaseStatusId: 4 }
+      { Id: 1, Name: "New", SortOrder: 10, Color: "#FF5252", BaseStatusId: 1 },
+      { Id: 2, Name: "In Progress", SortOrder: 20, Color: "#DF7E00", BaseStatusId: 2 },
+      { Id: 3, Name: "Waiting on Client", SortOrder: 30, Color: "#2196F3", BaseStatusId: 6 },
+      { Id: 4, Name: "Resolved", SortOrder: 40, Color: "#4CAF50", BaseStatusId: 3 },
+      { Id: 5, Name: "Closed", SortOrder: 50, Color: "#939dac", BaseStatusId: 4 }
     ],
     groups: [
       { Id: 1, Name: "Service Desk" },
