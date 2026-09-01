@@ -29,6 +29,8 @@ equal(Api.parseResponse(200, "").kind, "protocol", "empty 2xx body is a protocol
 equal(Api.parseResponse(200, "<html>nope</html>").kind, "protocol", "HTML 2xx body is a protocol error")
 equal(Api.parseResponse(200, JSON.stringify({ Data: [] })).kind, "protocol", "2xx wrapper must explicitly succeed")
 equal(Api.parseResponse(200, JSON.stringify({ IsSuccess: false })).kind, "protocol", "failed 2xx wrapper is a protocol error")
+const oversized = Api.parseResponse(200, "x".repeat(Api.MAX_RESPONSE_BYTES + 1))
+equal([oversized.kind, oversized.error], ["protocol", "The Gorelo API response was too large."], "oversized body is rejected before parsing")
 
 const statuses = [
   { Id: 3, Name: "Closed", SortOrder: 9 }, { Id: 1, Name: "New", SortOrder: 1 },

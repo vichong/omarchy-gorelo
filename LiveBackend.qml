@@ -43,8 +43,23 @@ QtObject {
       complete(Api.errorResult("network", "Request superseded."))
       try { xhr.abort() } catch (e) {}
     }
+    function tooLarge() {
+      complete(Api.errorResult("protocol", "The Gorelo API response was too large."))
+      try { xhr.abort() } catch (e) {}
+    }
     xhr.onreadystatechange = function() {
+      if (entry.done) return
+      if (xhr.readyState === XMLHttpRequest.HEADERS_RECEIVED) {
+        var declared = parseInt(xhr.getResponseHeader("Content-Length"), 10)
+        if (!isNaN(declared) && declared > Api.MAX_RESPONSE_BYTES) tooLarge()
+        return
+      }
+      if (xhr.readyState === XMLHttpRequest.LOADING) {
+        if (String(xhr.responseText || "").length > Api.MAX_RESPONSE_BYTES) tooLarge()
+        return
+      }
       if (xhr.readyState !== XMLHttpRequest.DONE) return
+      if (String(xhr.responseText || "").length > Api.MAX_RESPONSE_BYTES) { tooLarge(); return }
       var responseUrl = String(xhr.responseURL || "")
       if (responseUrl && responseUrl.indexOf(Api.baseUrl(root.region)) !== 0) {
         complete(Api.errorResult("protocol", "Unexpected redirect"))
@@ -161,7 +176,10 @@ QtObject {
     root.uploadOperation = { generation: root.generation, apiKey: root.apiKey, path: target,
                              callback: callback, done: false }
     var url = Api.baseUrl(root.region) + "/v1/tickets/" + encodeURIComponent(String(id)) + "/attachments"
-    uploadProcess.command = ["curl", "-sS", "--max-time", "115", "-K", "-",
+    // --max-filesize caps the buffered response body; curl >= 8.4 (Omarchy
+    // ships current Arch curl) also aborts an ongoing transfer at the limit.
+    uploadProcess.command = ["curl", "-sS", "--max-time", "115",
+                             "--max-filesize", String(Api.MAX_RESPONSE_BYTES), "-K", "-",
                              "-F", "file=@\"" + target + "\"", "-w", "\n%{http_code}", url]
     uploadProcess.stdinEnabled = true
     uploadDeadline.restart()
@@ -217,6 +235,9 @@ QtObject {
     }
     onExited: function(exitCode) {
       if (!root.uploadOperation) return
+      if (exitCode === 63 || root.uploadOutput.length > Api.MAX_RESPONSE_BYTES) {
+        root.finishUpload(Api.errorResult("protocol", "The upload response was too large.")); return
+      }
       var lines = root.uploadOutput.trim().split("\n")
       var code = parseInt(lines.pop(), 10)
       var parsed = Api.parseResponse(isNaN(code) ? 0 : code, lines.join("\n"))

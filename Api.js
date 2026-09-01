@@ -18,6 +18,10 @@ var PRIORITIES = [
 ]
 
 var CONVERSATION_PRIVATE = 2
+// Ceiling on any API response body we are willing to buffer or parse. The
+// largest legitimate response (200 tickets with embedded comments) stays well
+// under 1 MB.
+var MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 var DEFAULT_TICKET_URL = "https://app.gorelo.io/ticket/ticket-detail/{id}"
 var DEFAULT_DEVICE_URL = "https://app.gorelo.io/asset/device-detail/{id}?hostName={name}"
 var BASE_STATUS_RANK = { 1: 0, 2: 1, 6: 2, 3: 3, 4: 4 }
@@ -73,6 +77,9 @@ function priorityName(id) {
 // Classify an HTTP outcome. `text` is the raw body; the API wraps every
 // response in { IsSuccess, Data, DataContext, Notifications }.
 function parseResponse(status, text) {
+  if (text && text.length > MAX_RESPONSE_BYTES) {
+    return responseError("protocol", "The Gorelo API response was too large.", status, "", null)
+  }
   var body = null
   try { body = text ? JSON.parse(text) : null } catch (e) { body = null }
 
