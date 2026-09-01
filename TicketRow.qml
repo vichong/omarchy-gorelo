@@ -33,10 +33,20 @@ ListRow {
   readonly property color priorityColor: priorityId === 1 ? urgentColor
     : (priorityId === 2 ? Color.accent : dim)
 
+  // Reference status for this ticket (colour + base status), once loaded.
+  readonly property var status: {
+    if (!gorelo || !gorelo.statuses) return null
+    for (var i = 0; i < gorelo.statuses.length; i++)
+      if (gorelo.statuses[i].Id === statusId) return gorelo.statuses[i]
+    return null
+  }
+  subtitleIcon: status && statusName ? Api.statusIcon(status) : ""
+  subtitleIconColor: Api.statusColor(status) || dim
+
   subtitle: {
     var parts = []
-    if (clientName) parts.push(clientName)
     if (statusName) parts.push(statusName)
+    if (clientName) parts.push(clientName)
     if (showAssignee && assigneeName) parts.push(assigneeName)
     if (waiting) parts.push("waiting on client")
     return parts.join(" · ")

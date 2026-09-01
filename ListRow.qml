@@ -10,6 +10,10 @@ CursorSurface {
   property QtObject bar: null
   property bool expanded: false
   property string subtitle: ""
+  // Optional glyph drawn before the subtitle (e.g. the ticket's status icon
+  // in Gorelo's status colour). Empty hides it.
+  property string subtitleIcon: ""
+  property color subtitleIconColor: dim
   property string tooltipText: ""
   property string chevronTooltip: "Details"
   property Component mainLine: null
@@ -86,15 +90,35 @@ CursorSurface {
       }
     }
 
-    Text {
+    Item {
       width: parent.width
       visible: row.subtitle !== ""
-      textFormat: Text.PlainText
-      text: row.subtitle
-      elide: Text.ElideRight
-      color: row.dim
-      font.family: row.family
-      font.pixelSize: Style.font.caption
+      implicitHeight: Math.max(subtitleText.implicitHeight, subtitleIconText.implicitHeight)
+
+      Text {
+        id: subtitleIconText
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        visible: row.subtitleIcon !== ""
+        textFormat: Text.PlainText
+        text: row.subtitleIcon
+        color: row.subtitleIconColor
+        font.family: row.family
+        font.pixelSize: Style.font.caption
+      }
+      Text {
+        id: subtitleText
+        anchors.left: subtitleIconText.visible ? subtitleIconText.right : parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: subtitleIconText.visible ? Style.spacing.sm : 0
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: row.subtitle
+        elide: Text.ElideRight
+        color: row.dim
+        font.family: row.family
+        font.pixelSize: Style.font.caption
+      }
     }
 
     Loader {

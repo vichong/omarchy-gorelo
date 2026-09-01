@@ -31,8 +31,8 @@ get this far.
   Urgent/High ticket is in your queue. Left click opens the queue, right
   click opens a new ticket, middle click refreshes.
 - **Queue popup** — *Mine* and *All open* tabs, sorted urgent-first then by
-  last update. Each row shows number, title, client, status, age, unread and
-  "waiting on client" state. Click or Enter unfolds a row: status dropdown,
+  last update. Each row shows number, title, status (with its Gorelo colour
+  and icon), client, age, unread and "waiting on client" state. Click or Enter unfolds a row: status dropdown,
   *Assign to me*, a private note, and *Open in Gorelo* for the browser. The
   status picker shows Gorelo's status colours and icons in Gorelo's order.
   Its search bar filters the loaded queue as you type and also finds managed
