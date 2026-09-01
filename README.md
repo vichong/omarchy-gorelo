@@ -33,7 +33,8 @@ get this far.
 - **Queue popup** — *Mine* and *All open* tabs, sorted urgent-first then by
   last update. Each row shows number, title, client, status, age, unread and
   "waiting on client" state. Click or Enter unfolds a row: status dropdown,
-  *Assign to me*, a private note, and *Open in Gorelo* for the browser.
+  *Assign to me*, a private note, and *Open in Gorelo* for the browser. The
+  status picker shows Gorelo's status colours and icons in Gorelo's order.
   Its search bar filters the loaded queue as you type and also finds managed
   computers by device name or last logged-on user. Press Enter to search
   tickets and device names across the server too, including closed tickets;

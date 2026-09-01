@@ -20,6 +20,7 @@ var PRIORITIES = [
 var CONVERSATION_PRIVATE = 2
 var DEFAULT_TICKET_URL = "https://app.gorelo.io/ticket/ticket-detail/{id}"
 var DEFAULT_DEVICE_URL = "https://app.gorelo.io/asset/device-detail/{id}?hostName={name}"
+var BASE_STATUS_RANK = { 1: 0, 2: 1, 6: 2, 3: 3, 4: 4 }
 
 function errorResult(kind, message) {
   return { ok: false, status: 0, kind: String(kind || ""), error: String(message || ""),
@@ -129,10 +130,40 @@ function defaultStatusIds(statuses) {
   return out
 }
 
+function statusRank(status) {
+  var rank = status ? BASE_STATUS_RANK[status.BaseStatusId] : undefined
+  return typeof rank === "number" ? rank : 5
+}
+
 function sortStatuses(statuses) {
   var list = Array.isArray(statuses) ? statuses.slice() : []
-  list.sort(function(a, b) { return (a.SortOrder || 0) - (b.SortOrder || 0) })
+  var indexed = []
+  for (var i = 0; i < list.length; i++) indexed.push({ status: list[i], index: i })
+  indexed.sort(function(a, b) {
+    var rank = statusRank(a.status) - statusRank(b.status)
+    if (rank !== 0) return rank
+    var order = (a.status.SortOrder || 0) - (b.status.SortOrder || 0)
+    if (order !== 0) return order
+    var name = String(a.status.Name || "").localeCompare(String(b.status.Name || ""))
+    return name !== 0 ? name : a.index - b.index
+  })
+  for (var j = 0; j < indexed.length; j++) list[j] = indexed[j].status
   return list
+}
+
+function statusColor(status) {
+  if (!status || typeof status.Color !== "string") return ""
+  var color = status.Color.trim()
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color : ""
+}
+
+function statusIcon(status) {
+  var id = status ? status.BaseStatusId : undefined
+  if (id === 1) return "󰝥" // md-circle-outline
+  if (id === 2) return "󱎕" // md-circle-half
+  if (id === 6) return "󰍶" // md-minus-circle
+  if (id === 3 || id === 4) return "󰗠" // md-check-circle
+  return "󰝤" // md-circle
 }
 
 // Prototype-free map so a server-controlled id can never collide with

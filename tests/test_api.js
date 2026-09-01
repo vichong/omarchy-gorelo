@@ -38,6 +38,32 @@ const statuses = [
 equal(Api.defaultStatusIds(statuses), [1, 2], "closed-looking statuses excluded by default")
 equal(Api.sortStatuses(statuses).map(s => s.Id), [1, 2, 5, 4, 3], "statuses sort by SortOrder")
 
+const goreloStatuses = [
+  { Id: 3, Name: "Solved", BaseStatusId: 3, SortOrder: 1 },
+  { Id: 6, Name: "On Hold", BaseStatusId: 6, SortOrder: 1 },
+  { Id: 1, Name: "New", BaseStatusId: 1, SortOrder: 1 },
+  { Id: 4, Name: "Closed", BaseStatusId: 4, SortOrder: 1 },
+  { Id: 2, Name: "Open", BaseStatusId: 2, SortOrder: 1 }
+]
+equal(Api.sortStatuses(goreloStatuses).map(s => s.Id), [1, 2, 6, 3, 4],
+  "statuses sort in Gorelo base status order")
+equal(Api.sortStatuses(goreloStatuses.concat([
+  { Id: 20, Name: "Investigating", BaseStatusId: 2, SortOrder: 2 },
+  { Id: 99, Name: "Unknown", BaseStatusId: 99, SortOrder: 1 }
+])).map(s => s.Id), [1, 2, 20, 6, 3, 4, 99],
+  "custom open status sorts before on hold and unknown base status sorts last")
+
+equal(Api.statusColor({ Color: "#FF5252" }), "#FF5252", "status color accepts uppercase hex")
+equal(Api.statusColor({ Color: " #939dac " }), "#939dac", "status color trims valid lowercase hex")
+equal([
+  Api.statusColor({ Color: "red" }), Api.statusColor({ Color: "#fff" }),
+  Api.statusColor({ Color: "#FF5252;x" }), Api.statusColor(undefined)
+], ["", "", "", ""], "status color rejects unsafe or malformed values")
+
+const knownStatusIcons = [1, 2, 3, 4, 6].map(id => Api.statusIcon({ BaseStatusId: id }))
+assert(knownStatusIcons.every(icon => icon !== ""), "known base statuses have icons")
+equal(Api.statusIcon({ BaseStatusId: 99 }), "󰝤", "unknown base status uses fallback icon")
+
 const names = Api.nameMap([{ Id: 7, Name: "Acme" }, { Id: "constructor", Name: "x" }])
 equal(names["7"], "Acme", "name map by id")
 assert(Object.getPrototypeOf(names) === null, "name map is prototype-free")

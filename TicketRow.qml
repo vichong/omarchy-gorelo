@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import qs.Ui
 import qs.Commons
+import "Api.js" as Api
 import "Model.js" as Model
 
 // One ticket in the queue.
@@ -128,14 +129,19 @@ ListRow {
       }
       Row {
         spacing: Style.spacing.lg
-        Dropdown {
+        StatusDropdown {
           id: statusDropdown
           showLabel: false
           fontFamily: row.family
           foreground: row.fg
           width: Style.space(170)
           options: row.gorelo ? row.gorelo.statuses.map(function(status) {
-            return { value: String(status.Id), label: String(status.Name) }
+            return {
+              value: String(status.Id),
+              label: String(status.Name),
+              icon: Api.statusIcon(status),
+              color: Api.statusColor(status)
+            }
           }) : []
           value: String(row.statusId)
           onChanged: function(value) {
