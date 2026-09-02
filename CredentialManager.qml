@@ -14,6 +14,8 @@ QtObject {
   property string operationRegion: ""
   property string operationKey: ""
   property string operationOutput: ""
+  readonly property int maxLookupBytes: 4096
+  readonly property string boundedHelperPath: decodeURIComponent(String(Qt.resolvedUrl("scripts/gorelo-bounded")).replace(/^file:\/\//, ""))
 
   signal keyReady(string key, string region)
   signal missing(string region)
@@ -32,14 +34,17 @@ QtObject {
     root.processToken = ++root.operationToken
     root.pending = true
     if (kind === "store") {
-      operationProcess.command = ["secret-tool", "store", "--label=Gorelo API key (Omarchy)",
-                                  "service", "gorelo", "region", root.operationRegion]
+      operationProcess.command = ["bash", root.boundedHelperPath, "secret-tool", "store",
+                                  "--label=Gorelo API key (Omarchy)", "service", "gorelo",
+                                  "region", root.operationRegion]
       operationProcess.stdinEnabled = true
     } else if (kind === "clear") {
-      operationProcess.command = ["secret-tool", "clear", "service", "gorelo", "region", root.operationRegion]
+      operationProcess.command = ["bash", root.boundedHelperPath, "secret-tool", "clear",
+                                  "service", "gorelo", "region", root.operationRegion]
       operationProcess.stdinEnabled = false
     } else {
-      operationProcess.command = ["secret-tool", "lookup", "service", "gorelo", "region", root.operationRegion]
+      operationProcess.command = ["bash", root.boundedHelperPath, "secret-tool", "lookup",
+                                  "service", "gorelo", "region", root.operationRegion]
       operationProcess.stdinEnabled = false
     }
     deadline.restart()
@@ -71,7 +76,8 @@ QtObject {
       if (exitCode === 0 || exitCode === 1) root.cleared(region)
       else root.failed("Could not remove the API key from the keyring.", region)
     } else {
-      var found = exitCode === 0 ? output.trim() : ""
+      var truncated = exitCode === 90 || output.length >= root.maxLookupBytes
+      var found = exitCode === 0 && !truncated ? output.split(/\r?\n/)[0].trim() : ""
       if (found) root.keyReady(found, region)
       else root.missing(region)
     }
@@ -89,28 +95,43 @@ QtObject {
       root.operationRegion = ""
       root.operationKey = ""
       root.operationOutput = ""
+      root.processToken = 0
       if (operationProcess.running) operationProcess.signal(15)
+      killDeadline.restart()
       var verb = kind === "store" ? "storing" : (kind === "clear" ? "removing" : "reading")
       root.failed("Timed out while " + verb + " the API key.", region)
     }
   }
+  property Timer killDeadline: Timer {
+    interval: 2000
+    onTriggered: if (operationProcess.running) operationProcess.signal(9)
+  }
 
   property Process operationProcess: Process {
     command: []
-    stdout: SplitParser {
-      onRead: function(value) {
-        if (root.pending && root.operation === "lookup" && !root.operationOutput) {
-          root.operationOutput = String(value || "")
-        }
+    environment: ({ "GORELO_MAX_BYTES": String(root.maxLookupBytes) })
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        if (root.pending && root.processToken === root.operationToken) root.operationOutput = String(text || "")
       }
     }
     onStarted: {
-      if (!root.pending || root.processToken !== root.operationToken) { operationProcess.signal(15); return }
+      if (!root.pending || root.processToken !== root.operationToken) {
+        operationProcess.signal(15)
+        killDeadline.restart()
+        return
+      }
       if (root.operation === "store") {
         operationProcess.write(root.operationKey + "\n")
         operationProcess.stdinEnabled = false
       }
     }
-    onExited: function(exitCode) { root.finish(exitCode) }
+    onExited: function(exitCode) {
+      deadline.stop()
+      killDeadline.stop()
+      root.finish(exitCode)
+      operationProcess.stdinEnabled = false
+    }
   }
 }

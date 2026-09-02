@@ -1,7 +1,7 @@
 .pragma library
 
 // Pure helpers for the Gorelo public API (https://help.gorelo.io/api-overview).
-// Nothing here performs I/O; Service.qml owns the XMLHttpRequest calls.
+// Nothing here performs I/O; LiveBackend.qml owns the curl transport.
 
 var REGIONS = [
   { id: "usw", label: "United States", host: "https://api.usw.gorelo.io" },
@@ -22,6 +22,9 @@ var CONVERSATION_PRIVATE = 2
 // largest legitimate response (200 tickets with embedded comments) stays well
 // under 1 MB.
 var MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+// Screenshot attachments are refused before upload above 20 MiB. The helper
+// independently enforces the same ceiling through the opened file descriptor.
+var MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 var DEFAULT_TICKET_URL = "https://app.gorelo.io/ticket/ticket-detail/{id}"
 var DEFAULT_DEVICE_URL = "https://app.gorelo.io/asset/device-detail/{id}?hostName={name}"
 var BASE_STATUS_RANK = { 1: 0, 2: 1, 6: 2, 3: 3, 4: 4 }
@@ -47,6 +50,20 @@ function isRegion(id) {
 function baseUrl(region) {
   for (var i = 0; i < REGIONS.length; i++) if (REGIONS[i].id === region) return REGIONS[i].host
   return REGIONS[0].host
+}
+
+function urlOrigin(url) {
+  var match = String(url || "").match(/^([A-Za-z][A-Za-z0-9+.-]*):\/\/(\[[^\]]+\]|[^\/?#:]+)(?::([0-9]+))?(?:[\/?#]|$)/)
+  if (!match) return ""
+  var scheme = match[1].toLowerCase()
+  var host = match[2].toLowerCase()
+  var port = match[3] || (scheme === "https" ? "443" : (scheme === "http" ? "80" : ""))
+  return scheme + "://" + host + (port ? ":" + port : "")
+}
+
+function sameOrigin(url, expected) {
+  var actualOrigin = urlOrigin(url)
+  return actualOrigin !== "" && actualOrigin === urlOrigin(expected)
 }
 
 function regionLabel(region) {

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Hard ceiling for screenshot attachments: 20 MiB.
+readonly MAX_ATTACHMENT_BYTES=$((20 * 1024 * 1024))
+
+fail() {
+  printf '%s\n' 'gorelo-attachment: refused attachment' >&2
+  exit 64
+}
+
+(( $# >= 3 )) || fail
+mode=$1
+private_dir=$2
+name=$3
+
+[[ $name =~ ^screenshot-[A-Za-z0-9._-]+\.png$ ]] || fail
+[[ $name != *..* && $name != */* ]] || fail
+
+dir_meta=$(stat -c '%F:%u:%a:%d:%i' -- "$private_dir" 2>/dev/null) || fail
+IFS=: read -r dir_type dir_owner dir_mode dir_device dir_inode <<< "$dir_meta"
+[[ $dir_type == directory && $dir_owner == "$EUID" && $dir_mode == 700 ]] || fail
+cd -- "$private_dir" || fail
+dot_identity=$(stat -c '%d:%i' -- . 2>/dev/null) || fail
+[[ $dot_identity == "$dir_device:$dir_inode" ]] || fail
+
+# Open once, then authenticate the bound inode against the path's no-follow
+# metadata. A symlink or a path swap cannot pass the identity comparison.
+exec 3<"$name" || fail
+fd_meta=$(stat -Lc '%F:%u:%s:%d:%i' -- /dev/fd/3 2>/dev/null) || fail
+IFS=: read -r fd_type fd_owner fd_size fd_device fd_inode <<< "$fd_meta"
+[[ $fd_type == 'regular file' && $fd_owner == "$EUID" ]] || fail
+name_meta=$(stat -c '%F:%u:%d:%i' -- "$name" 2>/dev/null) || fail
+IFS=: read -r name_type name_owner name_device name_inode <<< "$name_meta"
+[[ $name_type == 'regular file' && $name_owner == "$EUID" ]] || fail
+readonly bound_identity="$fd_device:$fd_inode"
+[[ $name_device:$name_inode == "$bound_identity" ]] || fail
+
+cleanup_bound_name() {
+  local current_identity
+  current_identity=$(stat -c '%d:%i' -- "$name" 2>/dev/null) || return 0
+  if [[ $current_identity == "$bound_identity" ]]; then
+    rm -f -- "$name"
+  fi
+}
+
+if [[ $mode == delete ]]; then
+  (( $# == 3 )) || fail
+  cleanup_bound_name
+  exit 0
+fi
+
+[[ $mode == upload && $# == 7 ]] || fail
+url=$4
+max_response_bytes=$5
+max_time=$6
+max_attachment_bytes=$7
+[[ $url == https://* ]] || fail
+[[ $max_response_bytes =~ ^[1-9][0-9]*$ ]] || fail
+[[ $max_time =~ ^[1-9][0-9]*$ ]] || fail
+[[ $max_attachment_bytes == "$MAX_ATTACHMENT_BYTES" ]] || fail
+if (( fd_size > MAX_ATTACHMENT_BYTES )); then
+  cleanup_bound_name
+  fail
+fi
+
+# Preserve QML's stdin for the background curl so SIGTERM can be forwarded and
+# the already-open attachment can still be cleaned up before this helper exits.
+exec 4<&0
+curl_pid=''
+terminate_curl() {
+  if [[ -n $curl_pid ]]; then
+    kill -TERM "$curl_pid" 2>/dev/null || true
+  fi
+}
+trap terminate_curl TERM INT
+
+set +e
+curl -sS --proto '=https' --max-filesize "$max_response_bytes" \
+  --max-time "$max_time" -K - \
+  -F "file=@/dev/fd/3;filename=$name;type=image/png" \
+  -w $'\n%{http_code}' "$url" <&4 &
+curl_pid=$!
+wait "$curl_pid"
+curl_status=$?
+if kill -0 "$curl_pid" 2>/dev/null; then
+  wait "$curl_pid"
+  curl_status=$?
+fi
+set -e
+trap - TERM INT
+
+cleanup_bound_name
+exit "$curl_status"

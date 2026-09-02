@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.vichong.gorelo",
   "name": "Gorelo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "Vic Hong",
   "license": "MIT",
   "description": "Your Gorelo ticket queue in the Omarchy bar, plus a quick ticket overlay.",

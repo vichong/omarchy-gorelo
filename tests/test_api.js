@@ -4,6 +4,17 @@ const Api = loadModule("Api.js")
 equal(Api.baseUrl("aue"), "https://api.aue.gorelo.io", "aue base url")
 equal(Api.baseUrl("bogus"), "https://api.usw.gorelo.io", "unknown region falls back to usw")
 assert(Api.isRegion("usw") && !Api.isRegion("eu"), "region validation")
+equal(Api.urlOrigin("https://API.AUE.GORELO.IO/v1/tickets"), "https://api.aue.gorelo.io:443",
+  "origin normalizes host case and the default HTTPS port")
+assert(Api.sameOrigin("https://api.aue.gorelo.io:443/v1/tickets", "https://api.aue.gorelo.io"),
+  "explicit and implicit default ports share an origin")
+assert(!Api.sameOrigin("https://api.aue.gorelo.io.evil.test/v1", "https://api.aue.gorelo.io"),
+  "host prefix is not an origin match")
+assert(!Api.sameOrigin("http://api.aue.gorelo.io/v1", "https://api.aue.gorelo.io"),
+  "scheme is part of the origin")
+assert(!Api.sameOrigin("https://api.aue.gorelo.io:444/v1", "https://api.aue.gorelo.io"),
+  "non-default port is part of the origin")
+assert(!Api.sameOrigin("not a url", "https://api.aue.gorelo.io"), "invalid URLs do not match")
 equal(Api.errorResult("network", "offline"),
   { ok: false, status: 0, kind: "network", error: "offline", code: "", data: null, pagination: null },
   "shared error result shape")

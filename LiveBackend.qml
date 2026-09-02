@@ -1,9 +1,10 @@
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import "Api.js" as Api
 
 // Live Gorelo transport. Every callback is generation-gated; supersede()
-// aborts XHR and upload work before advancing the connection generation.
+// aborts curl and upload work before advancing the connection generation.
 QtObject {
   id: root
 
@@ -13,27 +14,39 @@ QtObject {
   property var deleteAttachment: null
   property var inflight: []
   readonly property int requestTimeoutMs: 25000
+  readonly property string runtimeDir: String(Quickshell.env("XDG_RUNTIME_DIR") || "")
+  readonly property string screenshotDir: runtimeDir ? runtimeDir + "/gorelo" : ""
+  readonly property string attachmentHelperPath: decodeURIComponent(String(Qt.resolvedUrl("scripts/gorelo-attachment")).replace(/^file:\/\//, ""))
 
   function success(data, pagination) {
     return { ok: true, status: 200, kind: "", error: "", code: "",
              data: data, pagination: pagination || null }
   }
 
-  function forget(xhr) {
+  function forget(entry) {
     var keep = []
-    for (var i = 0; i < root.inflight.length; i++) if (root.inflight[i].xhr !== xhr) keep.push(root.inflight[i])
+    for (var i = 0; i < root.inflight.length; i++) if (root.inflight[i] !== entry) keep.push(root.inflight[i])
     root.inflight = keep
   }
 
   function request(method, path, body, callback) {
     if (!root.apiKey) { callback(Api.errorResult("credential", "No API key configured.")); return null }
+    if (root.apiKey.indexOf("\n") !== -1 || root.apiKey.indexOf("\r") !== -1) {
+      callback(Api.errorResult("credential", "The API key contains unsupported line breaks.")); return null
+    }
     var token = root.generation
-    var xhr = new XMLHttpRequest()
-    var entry = { xhr: xhr, started: Date.now(), done: false, superseded: false, complete: null, abort: null }
+    var url = Api.baseUrl(root.region) + path
+    if (!Api.sameOrigin(url, Api.baseUrl(root.region))) {
+      callback(Api.errorResult("protocol", "Refused a request outside the configured Gorelo API origin."))
+      return null
+    }
+    var entry = { method: String(method), url: url, bodyText: body === null || body === undefined ? "" : JSON.stringify(body),
+                  apiKey: root.apiKey, generation: token, started: Date.now(), done: false,
+                  superseded: false, complete: null, abort: null }
     function complete(result) {
       if (entry.done) return
       entry.done = true
-      root.forget(xhr)
+      root.forget(entry)
       if (!entry.superseded && token === root.generation) callback(result)
     }
     entry.complete = complete
@@ -41,47 +54,64 @@ QtObject {
       if (entry.done) return
       entry.superseded = true
       complete(Api.errorResult("network", "Request superseded."))
-      try { xhr.abort() } catch (e) {}
-    }
-    function tooLarge() {
-      complete(Api.errorResult("protocol", "The Gorelo API response was too large."))
-      try { xhr.abort() } catch (e) {}
-    }
-    xhr.onreadystatechange = function() {
-      if (entry.done) return
-      if (xhr.readyState === XMLHttpRequest.HEADERS_RECEIVED) {
-        var declared = parseInt(xhr.getResponseHeader("Content-Length"), 10)
-        if (!isNaN(declared) && declared > Api.MAX_RESPONSE_BYTES) tooLarge()
-        return
+      if (root.requestOperation === entry && requestProcess.running) {
+        requestProcess.signal(15)
+        requestKillDeadline.restart()
+      } else {
+        root.startNextRequest()
       }
-      if (xhr.readyState === XMLHttpRequest.LOADING) {
-        if (String(xhr.responseText || "").length > Api.MAX_RESPONSE_BYTES) tooLarge()
-        return
-      }
-      if (xhr.readyState !== XMLHttpRequest.DONE) return
-      if (String(xhr.responseText || "").length > Api.MAX_RESPONSE_BYTES) { tooLarge(); return }
-      var responseUrl = String(xhr.responseURL || "")
-      if (responseUrl && responseUrl.indexOf(Api.baseUrl(root.region)) !== 0) {
-        complete(Api.errorResult("protocol", "Unexpected redirect"))
-        return
-      }
-      complete(Api.parseResponse(xhr.status, xhr.responseText))
     }
     var list = root.inflight.slice()
     list.push(entry)
     root.inflight = list
-    try {
-      xhr.open(method, Api.baseUrl(root.region) + path)
-      xhr.setRequestHeader("X-API-Key", root.apiKey)
-      xhr.setRequestHeader("Accept", "application/json")
-      if (body !== null && body !== undefined) {
-        xhr.setRequestHeader("Content-Type", "application/json")
-        xhr.send(JSON.stringify(body))
-      } else xhr.send()
-    } catch (e) {
-      complete(Api.errorResult("network", "Could not start the Gorelo API request."))
-    }
+    var queue = root.requestQueue.slice()
+    queue.push(entry)
+    root.requestQueue = queue
+    root.startNextRequest()
     return entry
+  }
+
+  // A single worker keeps request concurrency bounded. Credentials and JSON
+  // bodies enter curl only through its stdin config; redirects are never enabled.
+  function startNextRequest() {
+    if (root.requestOperation || requestProcess.running) return
+    var queue = root.requestQueue.slice()
+    var entry = null
+    while (queue.length && !entry) {
+      var candidate = queue.shift()
+      if (!candidate.done) entry = candidate
+    }
+    root.requestQueue = queue
+    if (!entry) return
+    root.requestOperation = entry
+    root.requestOutput = ""
+    requestProcess.command = ["curl", "-sS", "--proto", "=https", "--max-filesize",
+                              String(Api.MAX_RESPONSE_BYTES), "--max-time",
+                              String(Math.max(1, Math.ceil(root.requestTimeoutMs / 1000))),
+                              "-K", "-", "-w", "\n%{http_code}", entry.url]
+    requestProcess.stdinEnabled = true
+    requestDeadline.restart()
+    requestProcess.running = true
+  }
+
+  function parseCurlResult(output, exitCode, tooLargeMessage) {
+    var text = String(output || "")
+    if (exitCode === 63 || text.length > Api.MAX_RESPONSE_BYTES) {
+      return Api.errorResult("protocol", tooLargeMessage)
+    }
+    var marker = text.lastIndexOf("\n")
+    var statusText = marker >= 0 ? text.slice(marker + 1).trim() : ""
+    var responseBody = marker >= 0 ? text.slice(0, marker) : text
+    var status = parseInt(statusText, 10)
+    if (!isNaN(status) && status >= 300 && status < 400) {
+      return Api.errorResult("protocol", "Unexpected redirect")
+    }
+    var parsed = Api.parseResponse(isNaN(status) ? 0 : status, responseBody)
+    if (exitCode !== 0) {
+      if (!parsed.ok && parsed.status > 0) return parsed
+      return Api.errorResult("network", "Could not reach the Gorelo API (curl exited " + exitCode + ").")
+    }
+    return parsed
   }
 
   function requestAll(path, params, maxPages, callback) {
@@ -169,18 +199,25 @@ QtObject {
   function uploadAttachment(id, path, callback) {
     var target = String(path || "")
     if (root.uploadOperation || uploadProcess.running) { callback(Api.errorResult("config", "An upload is already running.")); return }
-    if (target.indexOf('"') !== -1 || target.indexOf("\n") !== -1) {
-      callback(Api.errorResult("config", "Unsupported characters in the file path.")); return
+    if (!root.apiKey) { callback(Api.errorResult("credential", "No API key configured.")); return }
+    if (root.apiKey.indexOf("\n") !== -1 || root.apiKey.indexOf("\r") !== -1) {
+      callback(Api.errorResult("credential", "The API key contains unsupported line breaks.")); return
+    }
+    if (!root.screenshotDir) { callback(Api.errorResult("config", "No private runtime directory is available.")); return }
+    if (!/^screenshot-[A-Za-z0-9._-]+\.png$/.test(target) || target.indexOf("..") !== -1 || target.indexOf("/") !== -1) {
+      callback(Api.errorResult("config", "Invalid screenshot attachment name.")); return
     }
     root.uploadOutput = ""
     root.uploadOperation = { generation: root.generation, apiKey: root.apiKey, path: target,
                              callback: callback, done: false }
     var url = Api.baseUrl(root.region) + "/v1/tickets/" + encodeURIComponent(String(id)) + "/attachments"
-    // --max-filesize caps the buffered response body; curl >= 8.4 (Omarchy
-    // ships current Arch curl) also aborts an ongoing transfer at the limit.
-    uploadProcess.command = ["curl", "-sS", "--max-time", "115",
-                             "--max-filesize", String(Api.MAX_RESPONSE_BYTES), "-K", "-",
-                             "-F", "file=@\"" + target + "\"", "-w", "\n%{http_code}", url]
+    if (!Api.sameOrigin(url, Api.baseUrl(root.region))) {
+      root.uploadOperation = null
+      callback(Api.errorResult("protocol", "Refused an upload outside the configured Gorelo API origin."))
+      return
+    }
+    uploadProcess.command = ["bash", root.attachmentHelperPath, "upload", root.screenshotDir, target, url,
+                             String(Api.MAX_RESPONSE_BYTES), "115", String(Api.MAX_ATTACHMENT_BYTES)]
     uploadProcess.stdinEnabled = true
     uploadDeadline.restart()
     uploadProcess.running = true
@@ -195,23 +232,54 @@ QtObject {
     root.uploadOutput = ""
     uploadDeadline.stop()
     if (operation && root.deleteAttachment) root.deleteAttachment(operation.path)
-    if (uploadProcess.running) uploadProcess.signal(15)
+    if (uploadProcess.running) { uploadProcess.signal(15); uploadKillDeadline.restart() }
     root.generation++
   }
 
-  property Timer watchdog: Timer {
-    interval: 5000
-    repeat: true
-    running: root.inflight.length > 0
+  property var requestQueue: []
+  property var requestOperation: null
+  property string requestOutput: ""
+  property Timer requestDeadline: Timer {
+    interval: root.requestTimeoutMs + 1000
     onTriggered: {
-      var requests = root.inflight.slice()
-      var now = Date.now()
-      for (var i = 0; i < requests.length; i++) {
-        if (now - requests[i].started > root.requestTimeoutMs) {
-          requests[i].complete(Api.errorResult("network", "The Gorelo API request timed out."))
-          try { requests[i].xhr.abort() } catch (e) {}
-        }
+      var operation = root.requestOperation
+      if (operation && !operation.done) operation.complete(Api.errorResult("network", "The Gorelo API request timed out."))
+      if (requestProcess.running) { requestProcess.signal(15); requestKillDeadline.restart() }
+    }
+  }
+  property Timer requestKillDeadline: Timer {
+    interval: 2000
+    onTriggered: if (requestProcess.running) requestProcess.signal(9)
+  }
+  property Process requestProcess: Process {
+    command: []
+    stdinEnabled: true
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.requestOutput = String(text || "") }
+    onStarted: {
+      var operation = root.requestOperation
+      if (!operation || operation.done) { requestProcess.signal(15); requestKillDeadline.restart(); return }
+      var config = "request = \"" + root.curlEscape(operation.method) + "\"\n"
+      config += "header = \"X-API-Key: " + root.curlEscape(operation.apiKey) + "\"\n"
+      config += "header = \"Accept: application/json\"\n"
+      if (operation.bodyText !== "") {
+        config += "header = \"Content-Type: application/json\"\n"
+        config += "data-raw = \"" + root.curlEscape(operation.bodyText) + "\"\n"
       }
+      requestProcess.write(config)
+      requestProcess.stdinEnabled = false
+    }
+    onExited: function(exitCode) {
+      var operation = root.requestOperation
+      var output = root.requestOutput
+      requestDeadline.stop()
+      requestKillDeadline.stop()
+      root.requestOperation = null
+      root.requestOutput = ""
+      requestProcess.stdinEnabled = true
+      if (operation && !operation.done) {
+        operation.complete(root.parseCurlResult(output, exitCode, "The Gorelo API response was too large."))
+      }
+      root.startNextRequest()
     }
   }
 
@@ -221,27 +289,31 @@ QtObject {
     interval: 120000
     onTriggered: {
       root.finishUpload(Api.errorResult("network", "The screenshot upload timed out."))
-      if (uploadProcess.running) uploadProcess.signal(15)
+      if (uploadProcess.running) { uploadProcess.signal(15); uploadKillDeadline.restart() }
     }
+  }
+  property Timer uploadKillDeadline: Timer {
+    interval: 2000
+    onTriggered: if (uploadProcess.running) uploadProcess.signal(9)
   }
   property Process uploadProcess: Process {
     command: []
     stdinEnabled: true
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.uploadOutput = String(text || "") }
     onStarted: {
-      if (!root.uploadOperation) { uploadProcess.signal(15); return }
+      if (!root.uploadOperation) { uploadProcess.signal(15); uploadKillDeadline.restart(); return }
       uploadProcess.write("header = \"X-API-Key: " + root.curlEscape(root.uploadOperation.apiKey) + "\"\n")
       uploadProcess.stdinEnabled = false
     }
     onExited: function(exitCode) {
-      if (!root.uploadOperation) return
-      if (exitCode === 63 || root.uploadOutput.length > Api.MAX_RESPONSE_BYTES) {
-        root.finishUpload(Api.errorResult("protocol", "The upload response was too large.")); return
+      uploadDeadline.stop()
+      uploadKillDeadline.stop()
+      uploadProcess.stdinEnabled = true
+      if (!root.uploadOperation) { root.uploadOutput = ""; return }
+      if (exitCode === 64) {
+        root.finishUpload(Api.errorResult("config", "The screenshot could not be verified as a private attachment file.")); return
       }
-      var lines = root.uploadOutput.trim().split("\n")
-      var code = parseInt(lines.pop(), 10)
-      var parsed = Api.parseResponse(isNaN(code) ? 0 : code, lines.join("\n"))
-      if (exitCode !== 0 && !parsed.ok) { root.finishUpload(Api.errorResult(parsed.kind, parsed.error || ("curl exited " + exitCode))); return }
+      var parsed = root.parseCurlResult(root.uploadOutput, exitCode, "The upload response was too large.")
       if (!parsed.ok) { root.finishUpload(parsed); return }
       if (!parsed.data || !parsed.data.Name || !parsed.data.Url) {
         root.finishUpload(Api.errorResult("protocol", "Unexpected upload response.")); return

@@ -59,8 +59,9 @@ Requirements:
 
 - Omarchy 4 (`schemaVersion: 1` plugin API)
 - `secret-tool` (libsecret) with a running keyring daemon
-- `curl` for screenshot uploads; `gio` (glib) only if you pick a specific
-  browser in Settings
+- `curl` for all Gorelo API requests (run without redirect following, HTTPS
+  only), plus `bash` and coreutils for the two small helpers in `scripts/`;
+  `gio` (glib) only if you pick a specific browser in Settings
 - A Gorelo API key from **Settings → Integrations → API keys**, with
   read/write on tickets and read on clients, organization and assets
 
@@ -189,17 +190,19 @@ file. The plugin never touches any other configuration.
 
 - The API key is stored in the system keyring via `secret-tool` and held in
   memory by the shell. It is never written to `config.json`, logs, IPC output
-  or process arguments — the screenshot upload hands it to `curl` through a
-  config file on stdin.
+  or process arguments — API requests hand it to `curl` through a config file
+  on stdin.
 - Because the key is held in the shell's memory, it would be present in a
   core dump of the shell process.
-- Qt's `XMLHttpRequest` follows redirects with headers. The plugin rejects a
-  completed response redirected away from the configured Gorelo API base, but
-  a compromised API edge could still redirect the key before that check runs.
+- API requests use `curl` without redirect following, restrict transfers to
+  HTTPS, and supply the key only through curl's stdin config. Any 3xx response
+  is rejected, so the key is never forwarded beyond the exact configured
+  Gorelo API origin.
 - Everything the API returns is rendered as plain text.
-- Screenshots are captured under the private `$XDG_RUNTIME_DIR/gorelo`
-  directory (mode `0700`) and removed after upload, failure, removal or
-  discard.
+- Screenshots are capped at 20 MiB and handled only as verified, owned regular
+  files under the private `$XDG_RUNTIME_DIR/gorelo` directory (mode `0700`).
+  Upload and cleanup stay bound to the verified inode and never follow a
+  replacement pathname.
 - `config.json` in `~/.config/omarchy/gorelo/` holds non-secret settings only.
 
 ## Development
