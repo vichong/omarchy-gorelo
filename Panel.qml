@@ -236,11 +236,51 @@ Panel {
       anchors.centerIn: parent
       spacing: Style.spacing.sm
 
-      GoreloIcon {
+      Item {
+        id: markSlot
+
+        // A bar glyph is centred by its font line box, not its painted
+        // pixels, so a vector mark centred geometrically sits low and reads
+        // taller. Take the painted box of a reference bar glyph instead: the
+        // mark then has the same height and baseline as the shell's icons.
+        // glyphRef is laid out exactly like the shell's OpticalGlyph (centred
+        // Text, native rendering), so its baseline is where a real icon's
+        // baseline lands; tightBoundingRect is baseline-relative.
+        readonly property rect glyphBox: glyphMetrics.tightBoundingRect
+        readonly property real glyphTop: glyphRef.y + glyphRef.baselineOffset + glyphBox.y
+
         anchors.verticalCenter: parent.verticalCenter
-        iconSize: Style.bar.iconCanvas
-        color: root.iconColor
-        colorful: root.colorful
+        width: mark.width
+        height: button.height
+
+        Text {
+          id: glyphRef
+
+          anchors.centerIn: parent
+          opacity: 0
+          textFormat: Text.PlainText
+          text: "󰖩"
+          font.family: root.family
+          font.pixelSize: Style.bar.iconFont
+          renderType: Text.NativeRendering
+        }
+
+        TextMetrics {
+          id: glyphMetrics
+
+          font: glyphRef.font
+          text: glyphRef.text
+        }
+
+        GoreloIcon {
+          id: mark
+
+          x: 0
+          y: markSlot.glyphTop
+          iconSize: Math.max(1, markSlot.glyphBox.height)
+          color: root.iconColor
+          colorful: root.colorful
+        }
       }
 
       Text {
