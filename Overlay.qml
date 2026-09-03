@@ -157,7 +157,7 @@ Item {
             Text {
               anchors.verticalCenter: parent.verticalCenter
               textFormat: Text.PlainText
-              text: root.tab === "settings" ? "Gorelo settings" : "New Gorelo ticket"
+              text: root.tab === "settings" ? "Settings" : "New ticket"
               color: root.foreground
               font.family: root.family
               font.pixelSize: Style.font.title

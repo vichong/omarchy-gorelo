@@ -345,7 +345,7 @@ Panel {
 
         PanelHero {
           width: parent.width
-          title: "Gorelo"
+          title: "Tickets"
           meta: root.heroMeta
           foreground: root.fg
           fontFamily: root.family
