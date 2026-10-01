@@ -11,6 +11,7 @@ ListRow {
   required property string name
   required property string hostName
   required property string clientName
+  required property string searchSource
   required property string statusName
   required property bool online
   required property string lastUser
@@ -20,7 +21,10 @@ ListRow {
   required property string publicIp
   required property string url
 
-  subtitle: [clientName, statusName, lastUser].filter(function(value) { return value !== "" }).join(" · ")
+  signal navigationFocusRequested()
+  readonly property bool inputOpen: expansionItem !== null && expansionItem.actionFocused
+
+  subtitle: [hostName !== name ? hostName : "", clientName, statusName, lastUser, searchSource].filter(function(value) { return value !== "" }).join(" · ")
   tooltipText: "Show " + name + " details"
   chevronTooltip: "Details"
 
@@ -74,6 +78,9 @@ ListRow {
 
   expansionComponent: Component {
     Column {
+      readonly property bool actionFocused: deviceOpenButton.activeFocus
+      function focusFirstAction(direction) { deviceOpenButton.forceActiveFocus() }
+      Keys.onEscapePressed: row.navigationFocusRequested()
       spacing: Style.spacing.sm
       topPadding: Style.spacing.sm
 
@@ -98,6 +105,8 @@ ListRow {
         font.pixelSize: Style.font.caption
       }
       Button {
+        id: deviceOpenButton
+        focusable: true
         bordered: true
         text: "Open in Gorelo"
         foreground: row.fg

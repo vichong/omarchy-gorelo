@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls
 import Quickshell.Io
 import qs.Ui
@@ -31,6 +32,22 @@ Panel {
   property string cursorTicketId: ""
   property string cursorDeviceId: ""
   property double lastSearchAcceptedAt: 0
+  property bool restoreRowFocus: false
+  property string focusedRowId: ""
+  Connections {
+    target: root.gorelo
+    function onRowsAboutToChange() {
+      root.restoreRowFocus = false; root.focusedRowId = ""
+      var focused = keyCatcher.Window.window ? keyCatcher.Window.window.activeFocusItem : null
+      for (var item = focused; item; item = item.parent) {
+        if (item.ticketId !== undefined || item.deviceId !== undefined) {
+          root.restoreRowFocus = true
+          root.focusedRowId = item.ticketId !== undefined ? String(item.ticketId) : String(item.deviceId)
+          break
+        }
+      }
+    }
+  }
 
   readonly property int rowCount: serviceReady ? gorelo.rows.count : 0
   readonly property int deviceRowCount: serviceReady ? gorelo.deviceRows.count : 0
@@ -98,6 +115,10 @@ Panel {
     if (restored !== -1) cursorIndex = restored
     else cursorIndex = totalRowCount > 0 ? Math.max(0, Math.min(totalRowCount - 1, cursorIndex)) : 0
     rememberCursor()
+    if (restoreRowFocus && focusedRowId && gorelo.indexOfTicket(focusedRowId) === -1 && gorelo.indexOfDevice(focusedRowId) === -1) {
+      Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    }
+    restoreRowFocus = false
   }
 
   function acceptSearch() {
@@ -106,6 +127,13 @@ Panel {
     if (now - lastSearchAcceptedAt < 300) return
     lastSearchAcceptedAt = now
     gorelo.runSearch()
+  }
+
+  function tabFromCursor(direction) {
+    var row = currentRow()
+    if (row && row.expanded && row.expansionItem) row.expansionItem.focusFirstAction(direction)
+    else if (showMoreButton.visible) showMoreButton.forceActiveFocus()
+    else root.switchPanel(direction)
   }
 
   function moveCursor(delta) {
@@ -141,10 +169,13 @@ Panel {
   }
 
   readonly property bool expandedInputOpen: {
-    if (!root.expandedTicketId) return false
     for (var i = 0; i < ticketRepeater.count; i++) {
-      var item = ticketRepeater.itemAt(i)
-      if (item && item.ticketId === root.expandedTicketId) return item.inputOpen
+      var ticket = ticketRepeater.itemAt(i)
+      if (ticket && ticket.ticketId === root.expandedTicketId && ticket.inputOpen) return true
+    }
+    for (var j = 0; j < deviceRepeater.count; j++) {
+      var device = deviceRepeater.itemAt(j)
+      if (device && device.deviceId === root.expandedDeviceId && device.inputOpen) return true
     }
     return false
   }
@@ -310,7 +341,7 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       // An open status dropdown owns j/k, arrows, Enter and Escape.
-      blocked: root.expandedInputOpen
+      blocked: root.expandedInputOpen || showMoreButton.activeFocus
       onCloseRequested: {
         if (searchField.activeFocus && searchField.text !== "") {
           root.gorelo.clearSearch()
@@ -321,7 +352,7 @@ Panel {
           root.close()
         }
       }
-      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onTabRequested: function(direction) { root.tabFromCursor(direction) }
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
         if (dy !== 0) root.moveCursor(dy)
@@ -547,6 +578,17 @@ Panel {
           }
         }
 
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          visible: root.connected && root.gorelo.searchQuery.trim() !== ""
+          text: "Cached matches appear while typing; Enter searches Gorelo. User, client and serial matching is cache-only."
+          wrapMode: Text.WordWrap
+          color: root.dim
+          font.family: root.family
+          font.pixelSize: Style.font.caption
+        }
+
         // ---------- empty queue ----------
         Text {
           textFormat: Text.PlainText
@@ -682,6 +724,7 @@ Panel {
                 showAssignee: root.tab === "all" || root.gorelo.searchActive
                 hasCursor: root.cursorActive && root.cursorIndex === index
                 expanded: root.expandedTicketId === ticketId
+                onNavigationFocusRequested: keyCatcher.forceActiveFocus()
                 onCursorRequested: {
                   root.cursorActive = true
                   root.selectCursorIndex(index)
@@ -697,7 +740,7 @@ Panel {
             PanelSectionHeader {
               width: parent.width
               visible: root.serviceReady && root.gorelo.searchQuery.trim() !== "" && root.deviceRowCount > 0
-              text: "DEVICES · " + root.deviceRowCount
+              text: "DEVICES · " + root.deviceRowCount + " of " + root.gorelo.deviceMatchCount
               foreground: root.fg
               fontFamily: root.family
             }
@@ -715,6 +758,7 @@ Panel {
                 currentFill: root.selectedFill
                 hasCursor: root.cursorActive && root.cursorIndex === root.rowCount + index
                 expanded: root.expandedDeviceId === deviceId
+                onNavigationFocusRequested: keyCatcher.forceActiveFocus()
                 onCursorRequested: {
                   root.cursorActive = true
                   root.selectCursorIndex(root.rowCount + index)
@@ -726,6 +770,30 @@ Panel {
               }
             }
 
+            Button {
+              id: showMoreButton
+              visible: root.serviceReady && root.gorelo.deviceMatchCount > root.deviceRowCount
+              focusable: true
+              bordered: true
+              text: "Show more devices"
+              foreground: root.fg
+              fontFamily: root.family
+              Keys.onEscapePressed: keyCatcher.forceActiveFocus()
+              onClicked: {
+                root.gorelo.showMoreDevices()
+                if (!visible) keyCatcher.forceActiveFocus()
+              }
+            }
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              visible: root.serviceReady && (root.gorelo.deviceSearchTruncated || root.gorelo.ticketSearchTruncated)
+              text: "Gorelo returned a partial result. Refine your query; exact matches are prioritised only within retrieved results."
+              wrapMode: Text.WordWrap
+              color: root.dim
+              font.family: root.family
+              font.pixelSize: Style.font.caption
+            }
             Text {
               textFormat: Text.PlainText
               width: parent.width

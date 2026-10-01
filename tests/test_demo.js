@@ -7,7 +7,7 @@ const tickets = Demo.demoTickets(now)
 const devices = Demo.demoDevices(now)
 
 equal([reference.clients.length, reference.statuses.length, reference.groups.length,
-  reference.types.length, reference.users.length], [4, 5, 2, 3, 3], "reference fixture counts")
+  reference.types.length, reference.users.length], [4, 6, 2, 3, 3], "reference fixture counts")
 equal(tickets.length, 14, "ticket fixture count")
 equal(devices.length, 8, "device fixture count")
 
@@ -52,7 +52,7 @@ const created = Demo.createTicket(store, {
 }, now + 3000)
 equal([created.store.tickets.length, created.ticket.DisplayNumber, created.ticket.Priority.Name],
   [15, "DEMO-1056", "High"], "create appends a fully projected ticket")
-equal(Demo.search(store, "globex").devices.length, 2, "search finds devices by client")
+equal(Demo.search(store, "mchen").devices.length, 0, "server does not match cached user fields")
 equal(Demo.search(store, "backup failed").tickets.map(ticket => ticket.Id), ["demo-ticket-1042"],
   "search finds ticket title")
 const showcase1 = Demo.nextShowcase(store, now + 4000)
@@ -63,4 +63,7 @@ equal(showcase2.tickets.filter(ticket => ticket.LeadAssigneeId === 1).length, 10
 equal(Demo.nextShowcase(showcase2, now + 6000).tickets.filter(ticket => ticket.LeadAssigneeId === 1).length, 10,
   "showcase assignment happens once")
 
+assert(reference.statuses.some(s => s.AskForReason === true), "demo includes reason-required status")
+assert(devices.some(d => d.Status.Id === 2) && devices.some(d => d.Status.Id === 3) && devices.some(d => d.Status.Id === 99), "demo includes documented online/offline and unknown IDs")
+equal(Demo.search(store, "Acme Pty Ltd").tickets.length, 0, "demo ticket server does not match client")
 done("test_demo")

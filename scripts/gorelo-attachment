@@ -14,6 +14,14 @@ mode=$1
 private_dir=$2
 name=$3
 
+# Validate the live ticket identifier before opening the attachment or invoking
+# curl. Demo IDs never pass through this helper.
+if [[ $mode == upload ]]; then
+  (( $# == 8 )) || fail
+  item_id=$8
+  [[ $item_id =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]] || fail
+fi
+
 [[ $name =~ ^screenshot-[A-Za-z0-9._-]+\.png$ ]] || fail
 [[ $name != *..* && $name != */* ]] || fail
 
@@ -50,7 +58,7 @@ if [[ $mode == delete ]]; then
   exit 0
 fi
 
-[[ $mode == upload && $# == 7 ]] || fail
+[[ $mode == upload && $# == 8 ]] || fail
 url=$4
 max_response_bytes=$5
 max_time=$6
@@ -79,6 +87,7 @@ set +e
 curl -sS --proto '=https' --max-filesize "$max_response_bytes" \
   --max-time "$max_time" -K - \
   -F "file=@/dev/fd/3;filename=$name;type=image/png" \
+  --form-string 'itemType=Ticket' --form-string "itemId=$item_id" \
   -w $'\n%{http_code}' "$url" <&4 &
 curl_pid=$!
 wait "$curl_pid"

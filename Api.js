@@ -245,3 +245,12 @@ function validTicketList(data) {
   }
   return out
 }
+
+function queryError(value) {
+  return String(value || "").length > 200
+    ? "Search Gorelo accepts at most 200 characters. Refine your query." : ""
+}
+
+function isUuid(value) {
+  return typeof value === "string" && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value)
+}

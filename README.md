@@ -35,11 +35,16 @@ get this far.
   last update. Each row shows number, title, status (in its Gorelo colour and
   icon), client, age, unread and "waiting on client" state. Click or Enter
   unfolds a row: a status picker in Gorelo's colours and order, *Assign to
-  me*, a private note, and *Open in Gorelo* for the browser.
+  me*, a private note, and *Open in Gorelo* for the browser. Status changes
+  show progress, update the queue after the save succeeds, and confirm with
+  a short notification; failed saves keep the ticket and its confirmed status.
+  Statuses requiring a reason must be changed in Gorelo.
 - **Search** — the popup's search bar filters the loaded queue as you type
-  and also matches managed computers by device name or last logged-on user.
-  Press Enter to search the server too, including closed tickets; unfold a
-  device for its details and an *Open in Gorelo* button.
+  and also matches cached managed computers by device name or last logged-on
+  user. Exact hostnames rank ahead of partial matches. Press Enter to add
+  server results, including closed tickets, without losing valid local matches;
+  *Show more* reveals additional retrieved devices. Unfold a device for its
+  details and an *Open in Gorelo* button.
 - **Notifications** — when a ticket is assigned to you, or one of yours gets
   an unread update. Click the notification to open the ticket. A priority
   threshold sets what is worth notifying about.
@@ -159,14 +164,21 @@ file. The plugin never touches any other configuration.
   rate-limits bursts, so polls back off (up to 10 min) and a connection that
   fails on a rate limit, network or server error retries by itself (30 s,
   doubling to 5 min).
-- A server search returns the 50 most recently updated matches. The device
+- A server search returns up to 50 tickets and 200 devices; truncated results
+  require a more specific query. Exact device matches are prioritised within
+  retrieved results, not guaranteed when the server truncates them. The device
   cache holds up to 2,000 computers and refreshes every 30 minutes; Enter
-  also asks Gorelo directly, so machines beyond the cache are still found.
+  also queries Gorelo for devices beyond the cache.
+- Server queries are limited to 200 characters. Gorelo searches ticket titles
+  and numbers, and device names, display names and descriptions. Last-user,
+  client and serial matches are local-cache conveniences, not server guarantees.
 - Each queue fetch is capped at five 100-ticket pages. When more are
   available, the panel says it is showing the first 500.
 - Comments posted through the API are recorded as API-authored, with your
   name attached. The plugin only ever posts *private* notes.
-- Time entries cannot be created through the API, so there is no timer.
+- Time-entry APIs are available, but the plugin does not yet provide a timer
+  or write time entries. Time logging can affect billing and is separate from
+  launching remote control.
 - The default ticket URL is `https://app.gorelo.io/ticket/ticket-detail/{id}`.
   It is a template (`{id}`, `{number}`, `{displayNumber}`) you can change in
   Settings if your tenancy differs. The device URL is likewise configurable,
@@ -174,17 +186,24 @@ file. The plugin never touches any other configuration.
 
 ## Roadmap
 
-- **Remote control from the widget.** Gorelo is building *Connect v2*, a
-  browser-based remote access tool (see the
-  [feature post](https://feedback.gorelo.io/p/desktopcomputer-gorelo-connect-v2)).
-  Once it ships, *Open in Gorelo* on a device row will start a Connect
-  session in an Omarchy web-app window that can live on its own workspace.
-  Device rows already go through a single `openDevice()` hook, so this is a
-  URL swap. Planned follow-ons: a *Connect* button on tickets with linked
-  devices, an in-session indicator in the bar, and "add a note to the ticket"
-  when the session ends.
-- Ticket rows showing their linked devices (`AgentAssetIds`), once the API
-  exposes them on the list endpoint.
+- **Remote control from the widget.** Gorelo released browser-based
+  [Connect v2 as a policy-enabled alpha on 25 September 2026](https://feedback.gorelo.io/changelog/release-notes-2026-09-25).
+  Direct launch from this plugin is still **not implemented**: the public API
+  does not document a Connect session endpoint or external launch URL. Browser
+  observation confirmed that Gorelo creates a session through an internal
+  gateway, then opens a viewer with transient credentials—not a reusable device
+  link. Once a supported launch mechanism is verified, a separate *Connect*
+  action will use the preferred browser, while *Open in Gorelo* will keep
+  opening device details.
+  Browser handoff alone cannot provide an active-session indicator or detect
+  when a session ends.
+- Ticket rows showing linked devices: `AgentAssetIds` is available through
+  ticket **detail**, not the list endpoint. A later on-demand detail fetch can
+  support this without fetching every ticket's details.
+
+Research, sources and the approved verification gates are recorded in
+[`docs/research/gorelo-updates-2026-10-02.md`](docs/research/gorelo-updates-2026-10-02.md)
+and [`docs/plans/gorelo-connect-v2.md`](docs/plans/gorelo-connect-v2.md).
 
 ## Security
 
@@ -222,10 +241,7 @@ chrome; the manifest entry points are `Service.qml`, `Panel.qml`, and
 `Overlay.qml`.
 
 ```bash
-node tests/test_api.js
-node tests/test_model.js
-node tests/test_config.js
-node tests/test_demo.js
+(for test in tests/test_*.js; do node "$test" || exit; done)
 omarchy plugin validate .
 ```
 

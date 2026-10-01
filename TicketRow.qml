@@ -26,9 +26,15 @@ ListRow {
   required property string lastSummary
   required property string url
 
+  signal navigationFocusRequested()
   property bool showAssignee: false
+  readonly property string pendingText: {
+    if (!gorelo) return ""
+    gorelo.statusRevision
+    return gorelo.pendingStatus(ticketId)
+  }
   readonly property bool inputOpen: expansionItem !== null
-    && (expansionItem.dropdownOpen || expansionItem.noteFocused)
+    && (expansionItem.dropdownOpen || expansionItem.noteFocused || expansionItem.actionFocused)
   readonly property color urgentColor: bar ? bar.urgent : Color.urgent
   readonly property color priorityColor: priorityId === 1 ? urgentColor
     : (priorityId === 2 ? Color.accent : dim)
@@ -45,7 +51,7 @@ ListRow {
 
   subtitle: {
     var parts = []
-    if (statusName) parts.push(statusName)
+    if (pendingText || statusName) parts.push(pendingText || statusName)
     if (clientName) parts.push(clientName)
     if (showAssignee && assigneeName) parts.push(assigneeName)
     if (waiting) parts.push("waiting on client")
@@ -114,6 +120,9 @@ ListRow {
       implicitHeight: actionsColumn.implicitHeight
       readonly property bool dropdownOpen: statusDropdown.popupOpen
       readonly property bool noteFocused: noteField.activeFocus
+      readonly property bool actionFocused: statusDropdown.controlFocused || openButton.activeFocus
+      function focusFirstAction(direction) { if (direction >= 0 && statusDropdown.enabled) statusDropdown.focusTrigger(); else openButton.forceActiveFocus() }
+      Keys.onEscapePressed: row.navigationFocusRequested()
 
       // Declared first so the controls above keep their own clicks and a
       // click on empty space does not fall through to "open ticket".
@@ -141,6 +150,9 @@ ListRow {
         spacing: Style.spacing.lg
         StatusDropdown {
           id: statusDropdown
+          controlled: true
+          enabled: row.pendingText === ""
+          opacity: enabled ? 1 : 0.6
           showLabel: false
           fontFamily: row.family
           foreground: row.fg
@@ -151,14 +163,17 @@ ListRow {
           options: row.gorelo ? row.gorelo.statuses.map(function(status) {
             return {
               value: String(status.Id),
-              label: String(status.Name),
+              label: String(status.Name) + (status.AskForReason ? " (in Gorelo)" : ""),
               icon: Api.statusIcon(status),
               color: Api.statusColor(status)
             }
           }) : []
           value: String(row.statusId)
           onChanged: function(value) {
-            if (row.gorelo && value !== String(row.statusId)) row.gorelo.setStatus(row.ticketId, value)
+            if (row.gorelo && value !== String(row.statusId)) {
+              row.navigationFocusRequested()
+              row.gorelo.setStatus(row.ticketId, value)
+            }
           }
         }
         Button {
@@ -171,6 +186,7 @@ ListRow {
         }
         Button {
           id: openButton
+          focusable: true
           bordered: true
           text: "Open in Gorelo"
           foreground: row.fg

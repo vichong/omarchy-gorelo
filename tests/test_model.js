@@ -45,9 +45,9 @@ equal(Model.filterTickets(searchable, ctx, "   \t"), searchable, "whitespace-onl
 const devices = [
   { Id: "d1", Name: "WS-ALPHA", DisplayName: "Ada Laptop", Description: "Design workstation",
     ClientId: 1, LastLoggedOnUser: "Ada", LastLoggedOnUserUpn: "ada@example.com", SerialNo: "SER-1",
-    Status: { Id: 1, Name: "Online" }, OsName: "Windows 11", LocalIPAddress: "10.0.0.2", PublicIPAddress: "1.2.3.4" },
+    Status: { Id: 2, Name: "Online" }, OsName: "Windows 11", LocalIPAddress: "10.0.0.2", PublicIPAddress: "1.2.3.4" },
   { Id: "d2", Name: "WS-BETA", ClientId: 2, LastLoggedOnUserUpn: "bob@example.com", SerialNo: "SER-2",
-    Status: { Id: 2, Name: "Disconnected" }, Os: "Windows", LastDisconnectDateTime: "2026-08-31T09:00:00Z" },
+    Status: { Id: 3, Name: "Disconnected" }, Os: "Windows", LastDisconnectDateTime: "2026-08-31T09:00:00Z" },
   { Id: "d3", Name: "SERVER-Z", ClientId: 1, Status: { Name: "ONLINE - idle" } }
 ]
 equal(Model.matchesDevice(devices[0], ctx, "alpha"), true, "device host name matches")
@@ -58,8 +58,8 @@ equal(Model.matchesDevice(devices[1], ctx, "bob@example"), true, "last logged-on
 equal(Model.matchesDevice(devices[1], ctx, "globex"), true, "device client name matches")
 equal(Model.matchesDevice(devices[0], ctx, "ser-1"), true, "device serial matches")
 equal(Model.matchesDevice(devices[1], ctx, "nope"), false, "unrelated device does not match")
-equal(Model.filterDevices(devices, ctx, "", 2).map(d => d.Id), ["d1", "d3"], "devices sort online first and respect limit")
-equal(Model.filterDevices(devices, ctx, "", 8).map(d => d.Id), ["d1", "d3", "d2"], "devices sort by display or host name")
+equal(Model.filterDevices(devices, ctx, "", 2).map(d => d.Id), ["d1", "d2"], "devices sort online first and respect limit")
+equal(Model.filterDevices(devices, ctx, "", 8).map(d => d.Id), ["d1", "d2", "d3"], "devices sort by display or host name")
 const refreshedDevice = Object.assign({}, devices[0], { DisplayName: "Ada's new laptop" })
 equal(Model.mergeDevices(devices, [refreshedDevice]).find(d => d.Id === "d1").DisplayName,
   "Ada's new laptop", "device additions replace matching base records")
@@ -67,7 +67,7 @@ equal(Model.updateDeviceHits([devices[0], devices[1]], [refreshedDevice, devices
   ["d1", "d3"], "recent direct hits replace old values, move forward, and respect their cap")
 const deviceRow = Model.projectDeviceRow(devices[1], ctx, d => "https://x/" + d.Id)
 equal([deviceRow.deviceId, deviceRow.name, deviceRow.hostName, deviceRow.clientName], ["d2", "WS-BETA", "WS-BETA", "Globex"], "device identity projection")
-equal([deviceRow.online, deviceRow.statusName, deviceRow.lastUser, deviceRow.lastSeen], [false, "Disconnected", "bob@example.com", "1h"], "offline device projection")
+equal([deviceRow.online, deviceRow.statusName, deviceRow.lastUser, deviceRow.lastSeen], [false, "Offline", "bob@example.com", "1h"], "offline device projection")
 equal([deviceRow.os, deviceRow.url], ["Windows", "https://x/d2"], "device detail projection")
 equal(Model.projectDeviceRow(devices[0], ctx).lastSeen, "", "online device has no last-seen age")
 
@@ -112,4 +112,30 @@ equal(Model.validateDraft({ title: "x", clientId: 1 }, { statusId: 1, groupId: 1
 equal(Model.attachmentFileName("/home/x/Pictures/shot.png"), "shot.png", "attachment file name")
 equal(Model.priorityGlyph(1) !== Model.priorityGlyph(3), true, "priority glyphs differ")
 
+assert(!Model.deviceOnline({ Status: { Name: "Online" } }), "missing status ID never implies online")
+equal(Model.projectDeviceRow({ Id: "u", Status: { Id: 99, Name: "Online" } }, ctx).statusName, "Unknown", "unknown ID is unknown regardless of name")
+const ranked = [
+  { Id: "partial", Name: "PC-1234", Status: { Id: 2 } },
+  { Id: "friendly", Name: "OTHER", DisplayName: "PC-123", Status: { Id: 2 } },
+  { Id: "exact", Name: "pc-123", Status: { Id: 3 } }
+]
+equal(Model.filterDevices(ranked, {}, "PC-123", 1).map(d => d.Id), ["exact"], "exact offline hostname ranks before online partial and display-name matches before limit")
+equal(Model.statusQueue([{...tickets[0], Status:{Id:5,Name:"Closed"}}], [1,2]).length, 0, "confirmed closed leaves excluding queue")
+equal(Model.statusQueue([{...tickets[0], Status:{Id:5,Name:"Closed"}}], [1,5]).length, 1, "explicit closed filter keeps ticket")
+const mergedSearch = Model.searchTickets(searchable, [{...searchable[0], Title:"Updated printer"}, {Id:"s3", Title:"Globex remote match"}], ctx, "globex")
+equal(mergedSearch.map(t => t.Id), ["s1", "s2", "s3"], "Enter keeps cache-only client hit and every current server result")
+equal(Model.searchTickets(searchable, [{...searchable[0], Title:"Other", ClientId:2}], ctx, "printer").map(t=>t.Title), ["Other"], "current server match survives different server keyword semantics with refreshed data")
+equal(Model.filterDevices([
+ {Id:"z",Name:"Same",Status:{Id:2}}, {Id:"a",Name:"Same",Status:{Id:2}}
+], {}, "same").map(d=>d.Id), ["a","z"], "duplicate hostnames have stable ID order")
+equal(Model.filterDevices(Model.mergeDevices(devices, [{...devices[0], LastLoggedOnUser:"New user"}]), ctx, "Ada").map(d=>d.Id), ["d1"], "server replacement retains genuine friendly-name match")
+equal(Model.filterDevices(Model.mergeDevices(devices, [{...devices[1], LastLoggedOnUserUpn:"new@example.com"}]), ctx, "bob").length, 0, "server record rematches and supersedes cache-only stale user hit")
+const olderTicket={Id:"fresh",Title:"Old search copy",UpdatedOn:"2026-10-02T10:00:00Z"}
+const newerTicket={...olderTicket,Title:"Fresh poll copy",UpdatedOn:"2026-10-02T10:01:00Z"}
+equal(Model.searchTickets([newerTicket],[olderTicket],{},"keyword").map(t=>t.Title),["Fresh poll copy"],"newer poll supersedes older search data without losing server membership")
+equal(Model.searchTickets([olderTicket],[newerTicket],{},"keyword").map(t=>t.Title),["Fresh poll copy"],"newer search supersedes older cache data")
+equal(Model.searchTickets([newerTicket],[{...newerTicket,Title:"Equal timestamp search"}],{},"keyword").map(t=>t.Title),["Equal timestamp search"],"search version wins timestamp tie deterministically")
+equal(Model.searchTickets([newerTicket],[{...olderTicket,UpdatedOn:"invalid"}],{},"keyword").map(t=>t.Title),["Fresh poll copy"],"missing or invalid server timestamp cannot replace a valid newer cache timestamp")
+equal(Model.searchTickets([{...olderTicket,UpdatedOn:undefined}],[{...olderTicket,Title:"Undated search",UpdatedOn:undefined}],{},"keyword").map(t=>t.Title),["Undated search"],"both undated records use documented incoming precedence")
+equal(Model.searchTickets([], [null,{Title:"Missing ID"}], {}, "query"), [], "invalid server records never become search membership")
 done("test_model")

@@ -93,4 +93,8 @@ equal(Api.deviceUrl("", { Id: "d1", Name: "host" }),
 equal(Api.escapeHtml("<b>&\n\"x\""), "&lt;b&gt;&amp;<br>&quot;x&quot;", "html escape")
 equal(Api.validTicketList([{ Id: 1 }, null, { NoId: true }, "x"]).length, 1, "ticket list validation")
 
+equal(Api.queryError("x".repeat(200)), "", "200 character server query accepted")
+equal(Api.queryError("x".repeat(201)), "Search Gorelo accepts at most 200 characters. Refine your query.", "oversize query explains limit")
+assert(Api.isUuid("12345678-1234-1234-1234-123456789abc"), "canonical UUID accepted")
+assert(!Api.isUuid("@/etc/passwd") && !Api.isUuid("<file") && !Api.isUuid("demo-ticket-1042"), "live upload rejects non UUID IDs")
 done("test_api")

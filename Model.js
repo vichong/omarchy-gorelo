@@ -132,7 +132,7 @@ function filterTickets(tickets, ctx, query) {
 }
 
 function deviceOnline(device) {
-  return !!(device && device.Status && /online/i.test(String(device.Status.Name || "")))
+  return !!(device && device.Status && device.Status.Id === 2)
 }
 
 function deviceName(device) {
@@ -166,9 +166,12 @@ function filterDevices(devices, ctx, query, limit) {
     if (matchesDevice(devices[i], ctx || {}, query)) out.push(devices[i])
   }
   out.sort(function(a, b) {
-    var onlineDifference = (deviceOnline(b) ? 1 : 0) - (deviceOnline(a) ? 1 : 0)
+    var relevance = deviceMatchRank(a, query) - deviceMatchRank(b, query)
+    if (relevance !== 0) return relevance
+    var onlineDifference = deviceStatusRank(a) - deviceStatusRank(b)
     if (onlineDifference !== 0) return onlineDifference
-    return deviceName(a).toLowerCase().localeCompare(deviceName(b).toLowerCase())
+    var nameOrder = deviceName(a).toLowerCase().localeCompare(deviceName(b).toLowerCase())
+    return nameOrder || String(a.Id).localeCompare(String(b.Id))
   })
   var cap = Number.isInteger(limit) ? Math.max(0, limit) : out.length
   return out.slice(0, cap)
@@ -221,7 +224,7 @@ function projectDeviceRow(device, ctx, urlFn) {
     name: deviceName(device),
     hostName: String(device.Name || ""),
     clientName: (ctx.clientNames && ctx.clientNames[String(device.ClientId)]) || "",
-    statusName: device.Status && device.Status.Name ? String(device.Status.Name) : "",
+    statusName: deviceStatusRank(device) === 0 ? "Online" : (deviceStatusRank(device) === 1 ? "Offline" : "Unknown"),
     online: online,
     lastUser: String(device.LastLoggedOnUser || device.LastLoggedOnUserUpn || ""),
     os: String(device.OsName || device.Os || ""),
@@ -344,4 +347,62 @@ function attachmentFileName(path) {
   var s = String(path || "")
   var slash = s.lastIndexOf("/")
   return slash === -1 ? s : s.slice(slash + 1)
+}
+
+function deviceStatusRank(device) {
+  var id = device && device.Status && device.Status.Id
+  return id === 2 ? 0 : (id === 3 ? 1 : 2)
+}
+
+function deviceMatchRank(device, query) {
+  var q = String(query || "").trim().toLowerCase()
+  if (!q) return 3
+  var host = String(device.Name || "").toLowerCase()
+  var display = String(device.DisplayName || "").toLowerCase()
+  if (host === q) return 0
+  if (display === q) return 1
+  if (host.indexOf(q) === 0 || display.indexOf(q) === 0) return 2
+  return 3
+}
+
+function statusQueue(tickets, statusIds) {
+  return tickets.filter(function(ticket) {
+    return !statusIds.length || statusIds.indexOf(ticket.Status && ticket.Status.Id) !== -1
+  })
+}
+
+// Later input wins equal/missing timestamps; a valid timestamp beats a
+// missing one. Stable input precedence also makes ticketFor deterministic.
+function freshestTicket(current, candidate) {
+  if (!current) return candidate
+  var oldTime = parseIso(current.UpdatedOn)
+  var newTime = parseIso(candidate.UpdatedOn)
+  return !isNaN(oldTime) && (isNaN(newTime) || oldTime > newTime) ? current : candidate
+}
+
+function mergeTickets(base, additions) {
+  var positions = Object.create(null)
+  var out = []
+  var sources = [Array.isArray(base) ? base : [], Array.isArray(additions) ? additions : []]
+  for (var s = 0; s < sources.length; s++) for (var i = 0; i < sources[s].length; i++) {
+    var ticket = sources[s][i]
+    if (!ticket || ticket.Id === undefined || ticket.Id === null) continue
+    var id = String(ticket.Id)
+    if (positions[id] === undefined) { positions[id] = out.length; out.push(ticket) }
+    else out[positions[id]] = freshestTicket(out[positions[id]], ticket)
+  }
+  return out
+}
+
+function searchTickets(local, server, context, query) {
+  // Server membership is authoritative for this query; its keyword matching
+  // need not have the same substring/collation rules as the cached matcher.
+  var serverIds = Object.create(null)
+  var results = Array.isArray(server) ? server : []
+  for (var i = 0; i < results.length; i++) {
+    if (results[i] && results[i].Id !== undefined && results[i].Id !== null) serverIds[String(results[i].Id)] = true
+  }
+  return mergeTickets(local, results).filter(function(ticket) {
+    return serverIds[String(ticket.Id)] || matchesQuery(ticket, context, query)
+  })
 }

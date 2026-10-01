@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "Api.js" as Api
 import "Model.js" as Model
+import "Coordinator.js" as Coordinator
 import "ConfigStore.js" as ConfigStore
 
 // Orchestration only: generation guards a connection lifetime; operation
@@ -227,6 +228,12 @@ QtObject {
   property bool devicesTruncated: false
   property int deviceLoadSerial: 0
   property var deviceHits: []
+  property var currentDeviceResults: []
+  property bool deviceSearchTruncated: false
+  property bool ticketSearchTruncated: false
+  property int deviceDisplayLimit: 8
+  property int deviceMatchCount: 0
+  function showMoreDevices() { deviceDisplayLimit += 8; rebuildRows() }
   property bool deviceSearching: false
   property string deviceSearchError: ""
   property ListModel deviceRows: ListModel {}
@@ -283,7 +290,8 @@ QtObject {
     statusNames = Object.create(null); typeNames = Object.create(null); groupNames = Object.create(null)
     clientNames = Object.create(null); userNames = Object.create(null); referenceLoaded = false
     devices = []; devicesLoaded = false; devicesLoading = false; devicesError = ""; devicesTruncated = false
-    deviceLoadSerial++; deviceHits = []; deviceSearching = false; deviceSearchError = ""
+    deviceLoadSerial++; deviceHits = []; currentDeviceResults = []; deviceSearchTruncated = false
+    ticketSearchTruncated = false; deviceDisplayLimit = 8; deviceMatchCount = 0; deviceSearching = false; deviceSearchError = ""
     mineTickets = []; allTickets = []; searchQuery = ""; searchActive = false; searching = false
     searchResults = []; searchError = ""; searchSerial++; searchPendingQuery = ""; searchPendingCount = 0
     searchRequests = []; mineIndex = Object.create(null); firstPollDone = false
@@ -293,6 +301,7 @@ QtObject {
   function supersedeRequests() {
     var upload = liveBackend.uploadOperation
     if (upload && String(draft.attachmentPath || "") === String(upload.path || "")) updateDraft({ attachmentPath: "" })
+    statusCoordinator.reset()
     backend.supersede()
     if (backend === liveBackend) demoBackend.supersede()
     else liveBackend.supersede()
@@ -363,13 +372,14 @@ QtObject {
     polling = true; pollRequested = false
     var token = generation
     var serial = pollSerial
+    var readToken = statusCoordinator.beginRead()
     var technician = effectiveTechnicianId
     var fetchAll = activeTab === "all"
     var filter = effectiveStatusIds.slice()
     var mineParams = { PageSize: 100, SortBy: "updatedOn", SortOrder: "desc",
                        StatusIds: filter, LeadAssigneeIds: technician ? [technician] : [] }
     var allParams = { PageSize: 100, SortBy: "updatedOn", SortOrder: "desc", StatusIds: filter }
-    function stale() { return token !== generation || serial !== pollSerial }
+    function stale() { return token !== generation || serial !== pollSerial || !statusCoordinator.validRead(readToken) }
     function finishStale() {
       if (token !== generation) return
       polling = false
@@ -443,7 +453,8 @@ QtObject {
   }
   function leaveSearch() {
     abortSearchRequests(); searchSerial++; searchActive = false; searching = false
-    deviceSearching = false; searchResults = []; searchError = ""; deviceSearchError = ""
+    deviceSearching = false; searchResults = []; currentDeviceResults = []; deviceSearchTruncated = false
+    ticketSearchTruncated = false; deviceDisplayLimit = 8; searchError = ""; deviceSearchError = ""
   }
   function setSearchQuery(text) {
     var next = String(text || "")
@@ -461,24 +472,36 @@ QtObject {
   function runSearch() {
     var query = searchQuery.trim()
     if (!query || !connected || (searchPendingCount > 0 && searchPendingQuery === query)) return false
+    var problem = Api.queryError(query)
+    if (problem) { searchError = problem; deviceSearchError = ""; return false }
     abortSearchRequests(); searchDebounce.stop()
+    var readToken = statusCoordinator.beginRead()
     var token = generation
     var serial = ++searchSerial
     searchActive = true; searching = true; deviceSearching = true
-    searchResults = []; searchError = ""; deviceSearchError = ""
+    searchError = ""; deviceSearchError = ""
     searchPendingQuery = query; searchPendingCount = 2; rebuildRows()
     var ticketRequest = backend.searchTickets(query, function(result) {
       if (token !== generation || serial !== searchSerial) return
       searching = false; finishSearchRequest(query, serial)
-      if (!result.ok) { searchError = result.error; searchResults = [] }
-      else { searchError = ""; searchResults = Api.validTicketList(result.data) }
+      if (!statusCoordinator.validRead(readToken)) return
+      if (!result.ok) { searchError = result.error }
+      else {
+        searchError = ""; searchResults = Api.validTicketList(result.data)
+        ticketSearchTruncated = !!(result.pagination && result.pagination.HasMore)
+      }
       rebuildRows()
     })
     var deviceRequest = backend.searchDevices(query, function(result) {
       if (token !== generation || serial !== searchSerial) return
       deviceSearching = false; finishSearchRequest(query, serial)
+      if (!statusCoordinator.validRead(readToken)) return
       if (!result.ok) deviceSearchError = result.error
-      else { deviceHits = Model.updateDeviceHits(deviceHits, result.data, 200); deviceSearchError = "" }
+      else {
+        currentDeviceResults = Array.isArray(result.data) ? result.data.slice(0, 200) : []
+        deviceHits = Model.updateDeviceHits(deviceHits, currentDeviceResults, 200); deviceSearchError = ""
+        deviceSearchTruncated = !!(result.pagination && result.pagination.HasMore)
+      }
       rebuildRows()
     })
     searchRequests = [ticketRequest, deviceRequest]
@@ -486,19 +509,43 @@ QtObject {
   }
   function clearSearch() { searchDebounce.stop(); leaveSearch(); searchQuery = ""; rebuildRows() }
   function rebuildRows() {
-    var source = searchActive ? searchResults : (activeTab === "all" ? allTickets : mineTickets)
+    var source = activeTab === "all" ? allTickets : mineTickets
     var context = rowContext()
-    var filtered = searchActive ? source.slice() : Model.filterTickets(source, context, searchQuery)
+    // Keep the active queue's local candidate IDs, but use the freshest copy
+    // held by either poll queue or the current server search for each one.
+    var candidates = searchActive ? source.map(function(ticket) { return root.ticketFor(ticket.Id) || ticket }) : source
+    var serverMatches = searchActive ? searchResults.map(function(ticket) { return root.ticketFor(ticket.Id) || ticket }) : []
+    var filtered = searchActive ? Model.searchTickets(candidates, serverMatches, context, searchQuery) : Model.filterTickets(source, context, searchQuery)
     var list = Model.buildRows(filtered, context, urlFor)
-    rows.clear()
-    for (var i = 0; i < list.length; i++) rows.append(list[i])
-    deviceRows.clear()
+    rowsAboutToChange()
+    syncRows(rows, list, "ticketId")
+    var deviceList = []
+    var matchCount = 0
     var query = searchQuery.trim()
     if (query) {
-      var matches = Model.filterDevices(allDevices(), context, query, 8)
-      for (var j = 0; j < matches.length; j++) deviceRows.append(Model.projectDeviceRow(matches[j], context, urlForDevice))
+      var matches = Model.filterDevices(allDevices(), context, query)
+      matchCount = matches.length
+      var currentIds = Object.create(null)
+      for (var c = 0; c < currentDeviceResults.length; c++) currentIds[String(currentDeviceResults[c].Id)] = true
+      for (var j = 0; j < Math.min(matches.length, deviceDisplayLimit); j++) {
+        var deviceRow = Model.projectDeviceRow(matches[j], context, urlForDevice)
+        deviceRow.searchSource = currentIds[String(matches[j].Id)] ? "Gorelo result" : "Cached"
+        deviceList.push(deviceRow)
+      }
     }
+    syncRows(deviceRows, deviceList, "deviceId")
+    deviceMatchCount = matchCount
     rowsRevision++
+  }
+  signal rowsAboutToChange()
+  function syncRows(model, list, key) {
+    for (var i = 0; i < list.length; i++) {
+      var found = -1
+      for (var j = i; j < model.count; j++) if (model.get(j)[key] === list[i][key]) { found = j; break }
+      if (found === -1) model.insert(i, list[i])
+      else { if (found !== i) model.move(found, i, 1); model.set(i, list[i]) }
+    }
+    if (model.count > list.length) model.remove(list.length, model.count - list.length)
   }
   function indexOfTicket(id) {
     for (var i = 0; i < rows.count; i++) if (String(rows.get(i).ticketId) === String(id || "")) return i
@@ -510,11 +557,13 @@ QtObject {
   }
   function ticketFor(id) {
     var wanted = String(id)
-    var sources = [searchResults, allTickets, mineTickets]
+    var found = null
+    // Later sources win ties: All → Mine → current search membership.
+    var sources = [allTickets, mineTickets, searchResults]
     for (var s = 0; s < sources.length; s++) for (var i = 0; i < sources[s].length; i++) {
-      if (String(sources[s][i].Id) === wanted) return sources[s][i]
+      if (String(sources[s][i].Id) === wanted) found = Model.freshestTicket(found, sources[s][i])
     }
-    return null
+    return found
   }
   function deviceFor(id) {
     var list = allDevices()
@@ -564,8 +613,10 @@ QtObject {
   readonly property bool actionBusy: pendingActions > 0
   function patchTicket(ticketId, patch, label, callback) {
     if (!connected) { if (callback) callback(false, "Not connected to Gorelo."); return false }
+    var token = generation
     pendingActions++; actionError = ""
     backend.patchTicket(ticketId, patch, function(result) {
+      if (token !== generation) return
       pendingActions = Math.max(0, pendingActions - 1)
       if (!result.ok) {
         actionError = label + " failed: " + result.error
@@ -577,12 +628,50 @@ QtObject {
     })
     return true
   }
-  function refreshAfterMutation() { if (searchActive) runSearch(); poll() }
+  function refreshAfterMutation() {
+    pollSerial++
+    if (searchActive) { abortSearchRequests(); searchSerial++; runSearch() }
+    poll()
+  }
+  property int statusRevision: 0
+  property var statusCoordinator: Coordinator.create({
+    backend: {
+      patchTicket: function(id, patch, done) { root.backend.patchTicket(id, patch, done) },
+      getTicket: function(id, done) { root.backend.getTicket(id, done) }
+    },
+    changed: function() { root.statusRevision++ },
+    apply: function(ticket) { root.applyConfirmedTicket(ticket) },
+    confirm: function(message) { root.actionError = ""; root.toast(message, "") },
+    error: function(message) { root.actionError = message },
+    refresh: function() { root.refreshAfterMutation() }
+  })
+  function pendingStatus(id) { return statusCoordinator.pending(id) }
+  function applyConfirmedTicket(ticket) {
+    var filter = effectiveStatusIds
+    allTickets = Model.statusQueue(Model.mergeDevices(allTickets, [ticket]), filter)
+    var mine = Model.mergeDevices(mineTickets, [ticket]).filter(function(item) {
+      return item.LeadAssigneeId === root.effectiveTechnicianId
+    })
+    mineTickets = Model.statusQueue(mine, filter)
+    if (searchActive) searchResults = searchResults.map(function(item) {
+      return String(item.Id) === String(ticket.Id) ? ticket : item
+    })
+    mineIndex = Model.indexOf(mineTickets)
+    ticketRevision++; rebuildRows()
+  }
   function setStatus(ticketId, statusId, callback) {
-    var id = parseInt(statusId, 10)
-    if (isNaN(id) || id <= 0) { if (callback) callback(false, "Invalid status."); return false }
-    return patchTicket(ticketId, { StatusId: id, UpdatedByName: effectiveTechnicianName || undefined },
-                       "Status change", callback)
+    var id = Number(statusId)
+    var status = null
+    for (var i = 0; i < statuses.length; i++) if (statuses[i].Id === id) status = statuses[i]
+    var ticket = ticketFor(ticketId)
+    if (!connected || !status || !ticket) {
+      actionError = !connected ? "Not connected to Gorelo." : "Invalid ticket or status."
+      if (callback) callback(false, actionError)
+      return false
+    }
+    if (ticket.Status && ticket.Status.Id === id) return false
+    actionError = ""
+    return statusCoordinator.setStatus(ticket, status, effectiveTechnicianName, callback)
   }
   function assignToMe(ticketId, callback) {
     if (!effectiveTechnicianId) { if (callback) callback(false, "No technician selected."); return false }
@@ -599,7 +688,9 @@ QtObject {
     pendingActions++; actionError = ""
     var payload = { ConversationTypeId: Api.CONVERSATION_PRIVATE, Body: Api.escapeHtml(note) }
     if (effectiveTechnicianName) payload.CreatedByName = effectiveTechnicianName
+    var token = generation
     backend.addComment(ticketId, payload, function(result) {
+      if (token !== generation) return
       pendingActions = Math.max(0, pendingActions - 1)
       if (!result.ok) {
         actionError = "Note failed: " + result.error

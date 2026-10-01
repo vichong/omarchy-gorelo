@@ -10,6 +10,8 @@ Item {
 
   property string label: ""
   property string value: ""
+  // Controlled status selections keep the confirmed service binding intact.
+  property bool controlled: false
   property var options: []
 
   property color foreground: Color.popups.text
@@ -33,6 +35,8 @@ Item {
   // own keyCatcher so j/k inside the popup don't double-drive the panel
   // cursor.
   readonly property bool popupOpen: popup.opened
+  readonly property bool controlFocused: trigger.activeFocus
+  function focusTrigger() { trigger.forceActiveFocus() }
   function open() { popup.open() }
   function close() { popup.close() }
   function toggle() { popup.opened ? popup.close() : popup.open() }
@@ -214,9 +218,10 @@ Item {
           function selectCurrent() {
             if (currentIndex < 0 || currentIndex >= root.options.length) return
             var v = root.optionValue(root.options[currentIndex])
-            root.value = v
-            root.changed(v)
+            if (!root.enabled) return
+            if (!root.controlled) root.value = v
             popup.close()
+            root.changed(v)
           }
 
           delegate: Rectangle {

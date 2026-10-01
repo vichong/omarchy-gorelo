@@ -169,12 +169,17 @@ QtObject {
 
   function listTickets(params, callback) { root.requestAll("/v1/tickets", params, 5, callback) }
   function searchTickets(query, callback) {
+    var problem = Api.queryError(query)
+    if (problem) { callback(Api.errorResult("config", problem)); return null }
     return root.request("GET", "/v1/tickets" + Api.query({ Query: query, PageSize: 50, SortBy: "updatedOn", SortOrder: "desc" }), null, callback)
   }
   function listDevices(callback) { root.requestAll("/v1/assets/agents", { PageSize: 200 }, 10, callback) }
   function searchDevices(query, callback) {
-    return root.request("GET", "/v1/assets/agents" + Api.query({ Query: query, PageSize: 25 }), null, callback)
+    var problem = Api.queryError(query)
+    if (problem) { callback(Api.errorResult("config", problem)); return null }
+    return root.request("GET", "/v1/assets/agents" + Api.query({ Query: query, PageSize: 200 }), null, callback)
   }
+  function getTicket(id, callback) { return root.request("GET", "/v1/tickets/" + encodeURIComponent(String(id)), null, callback) }
   function patchTicket(id, patch, callback) {
     root.request("PATCH", "/v1/tickets/" + encodeURIComponent(String(id)), patch, callback)
   }
@@ -197,6 +202,7 @@ QtObject {
   }
 
   function uploadAttachment(id, path, callback) {
+    if (!Api.isUuid(id)) { callback(Api.errorResult("protocol", "Invalid ticket UUID for screenshot upload.")); return }
     var target = String(path || "")
     if (root.uploadOperation || uploadProcess.running) { callback(Api.errorResult("config", "An upload is already running.")); return }
     if (!root.apiKey) { callback(Api.errorResult("credential", "No API key configured.")); return }
@@ -210,14 +216,14 @@ QtObject {
     root.uploadOutput = ""
     root.uploadOperation = { generation: root.generation, apiKey: root.apiKey, path: target,
                              callback: callback, done: false }
-    var url = Api.baseUrl(root.region) + "/v1/tickets/" + encodeURIComponent(String(id)) + "/attachments"
+    var url = Api.baseUrl(root.region) + "/v1/attachments"
     if (!Api.sameOrigin(url, Api.baseUrl(root.region))) {
       root.uploadOperation = null
       callback(Api.errorResult("protocol", "Refused an upload outside the configured Gorelo API origin."))
       return
     }
     uploadProcess.command = ["bash", root.attachmentHelperPath, "upload", root.screenshotDir, target, url,
-                             String(Api.MAX_RESPONSE_BYTES), "115", String(Api.MAX_ATTACHMENT_BYTES)]
+                             String(Api.MAX_RESPONSE_BYTES), "115", String(Api.MAX_ATTACHMENT_BYTES), id]
     uploadProcess.stdinEnabled = true
     uploadDeadline.restart()
     uploadProcess.running = true

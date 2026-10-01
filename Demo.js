@@ -22,7 +22,8 @@ function demoReference() {
       { Id: 2, Name: "Open", SortOrder: 1, Color: "#DF7E00", BaseStatusId: 2 },
       { Id: 3, Name: "On Hold", SortOrder: 1, Color: "#2196F3", BaseStatusId: 6 },
       { Id: 4, Name: "Solved", SortOrder: 1, Color: "#4CAF50", BaseStatusId: 3 },
-      { Id: 5, Name: "Closed", SortOrder: 1, Color: "#939dac", BaseStatusId: 4 }
+      { Id: 5, Name: "Closed", SortOrder: 1, Color: "#939dac", BaseStatusId: 4 },
+      { Id: 6, Name: "Escalated (reason required)", SortOrder: 2, BaseStatusId: 2, AskForReason: true }
     ],
     groups: [
       { Id: 1, Name: "Service Desk" },
@@ -109,7 +110,7 @@ function device(id, name, displayName, clientId, online, user, os, localIp,
     Name: name,
     DisplayName: displayName,
     ClientId: clientId,
-    Status: { Id: online ? 1 : 2, Name: online ? "Online" : "Offline" },
+    Status: { Id: online === null ? 99 : (online ? 2 : 3), Name: online === null ? "Unknown" : (online ? "Online" : "Offline") },
     LastLoggedOnUser: user,
     OsName: os,
     LocalIPAddress: localIp,
@@ -130,7 +131,7 @@ function demoDevices(now) {
     device(5, "INITECH-LT-007", "Peter's Laptop", 3, false, "INITECH\\pgibbons", "Windows 11 Enterprise", "10.30.1.17", "192.0.2.33", ago(at, 2 * day)),
     device(6, "INITECH-FS01", "Initech File Server", 3, true, "INITECH\\svc_backup", "Windows Server 2022", "10.30.0.12", "192.0.2.33", ""),
     device(7, "WAYNE-EXEC-01", "Executive Laptop", 4, true, "WAYNE\\bwayne", "Windows 11 Pro", "10.40.1.5", "203.0.113.72", ""),
-    device(8, "WAYNE-WH-03", "Warehouse Tablet", 4, false, "WAYNE\\warehouse", "Windows 10 IoT", "10.40.2.38", "203.0.113.72", ago(at, 9 * day))
+    device(8, "WAYNE-WH-03", "Warehouse Tablet", 4, null, "WAYNE\\warehouse", "Windows 10 IoT", "10.40.2.38", "203.0.113.72", ago(at, 9 * day))
   ]
 }
 
@@ -243,21 +244,11 @@ function referenceName(list, id) {
 function search(store, query) {
   var needle = String(query || "").trim().toLowerCase()
   if (!needle) return { tickets: store.tickets.slice(), devices: store.devices.slice() }
-  var clients = store.reference.clients
-  var users = store.reference.users
   var tickets = store.tickets.filter(function(item) {
-    var user = null
-    for (var i = 0; i < users.length; i++) if (users[i].Id === item.LeadAssigneeId) user = users[i]
-    return contains(item.DisplayNumber, needle) || contains(item.Number, needle)
-      || contains(item.Title, needle) || contains(referenceName(clients, item.ClientId), needle)
-      || contains(item.Status && item.Status.Name, needle)
-      || contains(user && (String(user.FirstName || "") + " " + String(user.LastName || "")), needle)
+    return contains(item.DisplayNumber, needle) || contains(item.Number, needle) || contains(item.Title, needle)
   })
   var devices = store.devices.filter(function(item) {
-    return contains(item.Name, needle) || contains(item.DisplayName, needle)
-      || contains(item.Description, needle) || contains(item.LastLoggedOnUser, needle)
-      || contains(item.LastLoggedOnUserUpn, needle) || contains(item.SerialNo, needle)
-      || contains(referenceName(clients, item.ClientId), needle)
+    return contains(item.Name, needle) || contains(item.DisplayName, needle) || contains(item.Description, needle)
   })
   return { tickets: tickets, devices: devices }
 }

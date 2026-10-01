@@ -26,13 +26,38 @@ QtObject {
     })
     callback(root.success(tickets))
   }
-  function searchTickets(query, callback) { callback(root.success(Demo.search(root.store, query).tickets)) }
+  function searchTickets(query, callback) {
+    var problem = Api.queryError(query)
+    if (problem) { callback(Api.errorResult("config", problem)); return }
+    callback(root.success(Demo.search(root.store, query).tickets))
+  }
   function listDevices(callback) { callback(root.success(root.store.devices.slice())) }
-  function searchDevices(query, callback) { callback(root.success(Demo.search(root.store, query).devices)) }
+  function searchDevices(query, callback) {
+    var problem = Api.queryError(query)
+    if (problem) { callback(Api.errorResult("config", problem)); return }
+    callback(root.success(Demo.search(root.store, query).devices))
+  }
+  property var patchQueue: []
+  function getTicket(id, callback) {
+    var ticket = null
+    for (var i = 0; i < store.tickets.length; i++) if (String(store.tickets[i].Id) === String(id)) ticket = store.tickets[i]
+    callback(ticket ? root.success(ticket) : Api.errorResult("api", "Ticket not found."))
+  }
   function patchTicket(id, patch, callback) {
-    var result = Demo.applyPatch(root.store, id, patch, Date.now())
-    root.store = result.store
-    callback(result.ticket ? root.success(result.ticket) : Api.errorResult("api", "Ticket not found."))
+    var queue = patchQueue.slice(); queue.push({ id: id, patch: patch, callback: callback }); patchQueue = queue
+    if (!patchDelay.running) patchDelay.start()
+  }
+  property Timer patchDelay: Timer {
+    interval: 650
+    onTriggered: {
+      var queue = root.patchQueue.slice(); var operation = queue.shift(); root.patchQueue = queue
+      if (operation) {
+        var result = Demo.applyPatch(root.store, operation.id, operation.patch, Date.now())
+        root.store = result.store
+        operation.callback(result.ticket ? root.success(result.ticket) : Api.errorResult("api", "Ticket not found."))
+      }
+      if (root.patchQueue.length) restart()
+    }
   }
   function addComment(id, payload, callback) {
     var normalized = {}
@@ -54,7 +79,7 @@ QtObject {
     if (root.deleteAttachment) root.deleteAttachment(String(path))
     callback(root.success({ Name: name, Url: "demo://attachment/" + encodeURIComponent(name) }))
   }
-  function supersede() { referenceDelay.stop(); root.referenceCallback = null }
+  function supersede() { referenceDelay.stop(); root.referenceCallback = null; patchDelay.stop(); patchQueue = [] }
   function reset() {
     var consumed = root.store && root.store.showcased === true
     root.store = Demo.createStore(Date.now())
