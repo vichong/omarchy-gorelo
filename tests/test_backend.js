@@ -32,4 +32,19 @@ equal(c.uploadProcess.command,["bash","/plugin/scripts/gorelo-attachment","uploa
 assert(!c.uploadProcess.command.includes("key"),"upload credentials never in argv")
 equal(c.parseCurlResult('{"IsSuccess":false,"Notifications":[{"Message":"Cannot choose New"}]}\n400',22,"large").error,"Cannot choose New","curl failure preserves API Notifications")
 equal(c.parseCurlResult("\n000",28,"large").kind,"network","curl timeout remains ambiguous network outcome")
+// Exercise the public request entry point at the existing Process-command seam.
+const transport={Api,String,Math,Date,JSON,region:"usw",apiKey:"test-only-api-key",generation:1,
+ requestTimeoutMs:25000,inflight:[],requestQueue:[],requestOperation:null,
+ requestProcess:{running:false},requestDeadline:{restart(){}}}
+transport.root=transport;vm.createContext(transport)
+vm.runInContext(["request","startNextRequest"].map(extract).join("\n"),transport)
+transport.request("GET","/v1/tickets",null,()=>{})
+const command=transport.requestProcess.command
+equal(command[0],"curl","request uses curl")
+equal(command[1],"-q","request disables ambient curl config before all other arguments")
+equal(command.slice(2),["-sS","--proto","=https","--max-filesize","5242880","--max-time","25",
+ "-K","-","-w","\n%{http_code}","https://api.usw.gorelo.io/v1/tickets"],
+ "request retains exact origin, no redirects, HTTPS-only transfer, limits and stdin config")
+assert(transport.requestProcess.stdinEnabled,"request keeps stdin enabled for credentials")
+assert(!command.join(" ").includes(transport.apiKey),"request credentials never in argv")
 done("test_backend")

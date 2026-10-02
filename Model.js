@@ -406,3 +406,31 @@ function searchTickets(local, server, context, query) {
     return serverIds[String(ticket.Id)] || matchesQuery(ticket, context, query)
   })
 }
+
+// Request-start ordering, kept outside API records. A late older snapshot
+// cannot replace a device observed by a newer request.
+function mergeDeviceSnapshots(snapshots) {
+  var items = []
+  var positions = Object.create(null)
+  var orders = Object.create(null)
+  for (var s = 0; s < snapshots.length; s++) {
+    var snapshot = snapshots[s]
+    var list = snapshot.items || []
+    for (var i = 0; i < list.length; i++) {
+      var device = list[i]
+      if (!device || device.Id === undefined || device.Id === null) continue
+      var id = String(device.Id)
+      var order = snapshot.orders ? (snapshot.orders[id] || 0) : (snapshot.order || 0)
+      if (positions[id] === undefined) { positions[id] = items.length; items.push(device); orders[id] = order }
+      else if (order >= orders[id]) { items[positions[id]] = device; orders[id] = order }
+    }
+  }
+  return { items: items, orders: orders }
+}
+
+// Existing matching IDs take capacity first. New local IDs are admitted only
+// when they can remain visible across subsequent queue removals/refreshes.
+function retainTicketSnapshot(retained, candidates, context, query, limit) {
+  var matching = filterTickets(mergeTickets(retained, candidates), context, query)
+  return { items: matching.slice(0, limit), full: matching.length >= limit }
+}

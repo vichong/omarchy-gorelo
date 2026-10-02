@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+# Keep metadata type names stable without changing the capture child's locale.
+stat() {
+  LC_ALL=C command stat "$@"
+}
+export -n -f stat
+
+readonly MAX_ATTACHMENT_BYTES=$((20 * 1024 * 1024))
+readonly MAX_OUTPUT_BYTES=8192
+readonly CAPTURE_TIMEOUT_SECONDS=290
+fail() {
+  printf '%s\n' 'gorelo-capture: refused capture' >&2
+  exit 64
+}
+
+(( $# == 1 )) || fail
+private_dir=$1
+[[ $private_dir == /* && $private_dir != *$'\n'* && $private_dir != *$'\r'* ]] || fail
+root_meta=$(stat -c '%F:%u:%a:%d:%i' -- "$private_dir" 2>/dev/null) || fail
+IFS=: read -r root_type root_owner root_mode root_device root_inode <<< "$root_meta"
+[[ $root_type == directory && $root_owner == "$EUID" && $root_mode == 700 ]] || fail
+cd -- "$private_dir" || fail
+[[ $(stat -c '%d:%i' -- .) == "$root_device:$root_inode" ]] || fail
+exec 8<.
+
+stage=$(mktemp -d -- .capture-XXXXXXXXXXXXXXXXXXXXXXXX) || fail
+[[ $stage =~ ^\.capture-[A-Za-z0-9]{24}$ ]] || fail
+stage_meta=$(stat -c '%F:%u:%a:%d:%i' -- "$stage") || fail
+IFS=: read -r stage_type stage_owner stage_mode stage_device stage_inode <<< "$stage_meta"
+[[ $stage_type == directory && $stage_owner == "$EUID" && $stage_mode == 700 ]] || fail
+published=''
+keep_published=false
+cancel_requested=false
+capture_pid=''
+group_start=''
+stdout_pid=''
+stderr_pid=''
+stdout_start=''
+stderr_start=''
+process_start() {
+  local proc_stat tail
+  local -a fields
+  IFS= read -r proc_stat 2>/dev/null < "/proc/$1/stat" || return 1
+  tail=${proc_stat##*) }
+  read -r -a fields <<< "$tail"
+  printf '%s\n' "${fields[19]:-}"
+}
+finish_collectors() {
+  local pid start attempt
+  collectors_ok=true
+  # Collectors are direct children outside the capture group, so TERM cannot
+  # discard head's buffered output. Once the group stops they drain EOF/reap.
+  # Bound even a failed launch or a descendant that escaped the owned group.
+  for pid in "$stdout_pid" "$stderr_pid"; do
+    [[ -n $pid ]] || continue
+    if [[ $pid == "$stdout_pid" ]]; then start=$stdout_start; else start=$stderr_start; fi
+    for (( attempt=0; attempt<10; attempt++ )); do
+      [[ -n $start && $(process_start "$pid") == "$start" ]] || break
+      sleep 0.01
+    done
+    if [[ -n $start && $(process_start "$pid") == "$start" ]]; then
+      kill -TERM "$pid" 2>/dev/null || true
+    fi
+    # A trapped cancellation can interrupt wait before the child is reaped.
+    while [[ -n $start && $(process_start "$pid") == "$start" ]]; do
+      wait "$pid" 2>/dev/null || true
+    done
+    wait "$pid" 2>/dev/null || collectors_ok=false
+  done
+  stdout_pid=''
+  stderr_pid=''
+}
+child_group_matches() {
+  local proc_stat tail
+  local -a fields
+  [[ -n $capture_pid && -n $group_start ]] || return 1
+  IFS= read -r proc_stat 2>/dev/null < "/proc/$capture_pid/stat" || return 1
+  tail=${proc_stat##*) }
+  read -r -a fields <<< "$tail"
+  [[ ${fields[2]:-} == "$capture_pid" && ${fields[19]:-} == "$group_start" ]]
+}
+stop_capture() {
+  if [[ -n $capture_pid ]]; then
+    # Signal only our identity-checked timeout leader. GNU timeout forwards to
+    # its own process group, grants the tool 1s cleanup, then kills that group.
+    if child_group_matches; then kill -TERM "$capture_pid" 2>/dev/null || true; fi
+    while child_group_matches; do wait "$capture_pid" 2>/dev/null || true; done
+    wait "$capture_pid" 2>/dev/null || true
+    capture_pid=''
+  fi
+}
+cleanup_stage() {
+  local entry meta type owner device inode current
+  # Work only in the bound staging directory. Never recurse into tool output.
+  if [[ $(stat -c '%d:%i' -- . 2>/dev/null) == "$stage_device:$stage_inode" ]]; then
+    for entry in .stdout .stderr .done .go .out.pipe .err.pipe screenshot-*.png; do
+      meta=$(stat -c '%F:%u:%d:%i' -- "$entry" 2>/dev/null) || continue
+      IFS=: read -r type owner device inode <<< "$meta"
+      [[ $owner == "$EUID" ]] || continue
+      if [[ $type != 'regular file' && $type != 'regular empty file' && $type != 'symbolic link' ]]; then
+        [[ $type == fifo && ( $entry == .out.pipe || $entry == .err.pipe ) ]] || continue
+      fi
+      current=$(stat -c '%d:%i' -- "$entry" 2>/dev/null) || continue
+      [[ $current == "$device:$inode" ]] && rm -f -- "$entry"
+    done
+  fi
+  current=$(stat -c '%F:%u:%a:%d:%i' -- "/dev/fd/8/$stage" 2>/dev/null) || current=''
+  if [[ $current == "$stage_meta" ]]; then
+    rmdir -- "/dev/fd/8/$stage" 2>/dev/null || true
+  fi
+}
+cleanup() {
+  local current
+  trap '' TERM INT
+  stop_capture
+  finish_collectors
+  cleanup_stage
+  if [[ -n $published && $keep_published == false ]]; then
+    current=$(stat -c '%d:%i' -- "/dev/fd/8/$published" 2>/dev/null) || current=''
+    if [[ $current == "${file_device:-}:${file_inode:-}" ]]; then
+      rm -f -- "/dev/fd/8/$published"
+    fi
+  fi
+}
+trap cleanup EXIT
+# Defer cancellation until launch identity is registered, rather than exiting
+# between spawning the child and recording/verifying its dedicated group.
+trap 'cancel_requested=true' TERM INT
+
+exec 9<"$stage"
+[[ $(stat -Lc '%d:%i' -- /dev/fd/9) == "$stage_device:$stage_inode" ]] || fail
+cd -- /dev/fd/9 || fail
+[[ $cancel_requested == false ]] || exit 143
+
+# Descriptor paths keep tool writes inside this capture's bound staging inode,
+# even if a pathname is swapped. The descriptors are inherited by the tool.
+export OMARCHY_SCREENSHOT_DIR=/dev/fd/9
+mkfifo -- .out.pipe .err.pipe
+head -c "$MAX_OUTPUT_BYTES" < .out.pipe > .stdout &
+stdout_pid=$!
+stdout_start=$(process_start "$stdout_pid") || stdout_start=''
+head -c "$MAX_OUTPUT_BYTES" < .err.pipe > .stderr &
+stderr_pid=$!
+stderr_start=$(process_start "$stderr_pid") || stderr_start=''
+# The worker stays alive after the tool exits, retaining a verified group
+# leader until the parent stops it. This also catches delayed grandchildren.
+# Both collectors cap on-disk output before any path is parsed into memory.
+# No user shell startup hook runs in the worker.
+unset BASH_ENV ENV
+timeout --kill-after=1s "$CAPTURE_TIMEOUT_SECONDS" bash -c '
+  trap ":" TERM INT
+  # No screenshot tool starts before the parent verifies this dedicated group.
+  # A failed/unverified launch self-exits promptly without any capture effects.
+  for (( attempt=0; attempt<25; attempt++ )); do
+    [[ -f .go && ! -L .go ]] && break
+    sleep 0.02
+  done
+  [[ -f .go && ! -L .go ]] || exit 64
+  omarchy capture screenshot region save > .out.pipe 2> .err.pipe &
+  tool=$!
+  wait "$tool"
+  status=$?
+  set -C
+  printf "%s\n" "$status" > .done
+  while :; do sleep 60 & wait "$!" || :; done
+' capture-worker > /dev/null 2> /dev/null &
+capture_pid=$!
+# timeout calls setpgid before launching its worker. Never signal an inherited
+# group; bind the leader's /proc start time once its new group is established.
+# Reserve the rest of QML's 2s grace for TERM/KILL, collector drain and cleanup.
+for (( attempt=0; attempt<25; attempt++ )); do
+  if IFS= read -r proc_stat 2>/dev/null < "/proc/$capture_pid/stat"; then
+    tail=${proc_stat##*) }
+    read -r -a fields <<< "$tail"
+    if [[ ${fields[2]:-} == "$capture_pid" ]]; then
+      group_start=${fields[19]}
+      break
+    fi
+  fi
+  kill -0 "$capture_pid" 2>/dev/null || break
+  sleep 0.01
+done
+[[ -n $group_start ]] || fail
+[[ $cancel_requested == false ]] || exit 143
+( set -C; : > .go ) || fail
+while [[ ! -e .done && $cancel_requested == false ]] && child_group_matches; do sleep 0.02; done
+[[ $cancel_requested == false ]] || exit 143
+stop_capture
+finish_collectors
+[[ $cancel_requested == false ]] || exit 143
+[[ $collectors_ok == true ]] || fail
+status_meta=$(stat -c '%F:%u:%s:%d:%i' -- .done 2>/dev/null) || fail
+IFS=: read -r status_type status_owner status_size status_device status_inode <<< "$status_meta"
+[[ $status_type == 'regular file' && $status_owner == "$EUID" ]] || fail
+(( status_size <= 4 )) || fail
+exec 5<.done || fail
+[[ $(stat -Lc '%F:%u:%s:%d:%i' -- /dev/fd/5) == "$status_meta" ]] || fail
+[[ $(stat -c '%F:%u:%s:%d:%i' -- .done) == "$status_meta" ]] || fail
+IFS= read -r capture_status <&5 || fail
+[[ $capture_status =~ ^[0-9]{1,3}$ ]] || fail
+(( capture_status == 0 )) || exit "$capture_status"
+output_meta=$(stat -c '%F:%u:%s:%d:%i' -- .stdout 2>/dev/null) || fail
+IFS=: read -r output_type output_owner output_size output_device output_inode <<< "$output_meta"
+[[ ( $output_type == 'regular file' || $output_type == 'regular empty file' ) && $output_owner == "$EUID" ]] || fail
+(( output_size < MAX_OUTPUT_BYTES )) || fail
+exec 4<.stdout || fail
+[[ $(stat -Lc '%F:%u:%s:%d:%i' -- /dev/fd/4) == "$output_meta" ]] || fail
+[[ $(stat -c '%F:%u:%s:%d:%i' -- .stdout) == "$output_meta" ]] || fail
+hint=$(head -c "$MAX_OUTPUT_BYTES" <&4)
+[[ -n $hint ]] || exit 0
+[[ $hint == /dev/fd/9/* && $hint != *$'\n'* && $hint != *$'\r'* ]] || fail
+name=${hint#/dev/fd/9/}
+[[ $name =~ ^screenshot-[A-Za-z0-9._-]+\.png$ && $name != *..* && $name != */* ]] || fail
+file_meta=$(stat -c '%F:%u:%s:%d:%i' -- "$name" 2>/dev/null) || fail
+IFS=: read -r file_type file_owner file_size file_device file_inode <<< "$file_meta"
+[[ $file_type == 'regular file' && $file_owner == "$EUID" ]] || fail
+(( file_size <= MAX_ATTACHMENT_BYTES )) || fail
+exec 3<"$name" || fail
+[[ $(stat -Lc '%F:%u:%s:%d:%i' -- /dev/fd/3) == "$file_meta" ]] || fail
+[[ $(stat -c '%F:%u:%s:%d:%i' -- "$name") == "$file_meta" ]] || fail
+[[ $(stat -c '%F:%u:%a:%d:%i' -- "$private_dir") == "$root_meta" ]] || fail
+[[ $(stat -c '%F:%u:%a:%d:%i' -- "/dev/fd/8/$stage") == "$stage_meta" ]] || fail
+[[ $cancel_requested == false ]] || exit 143
+final_name="screenshot-${stage#.capture-}.png"
+# GNU ln follows only our verified descriptor; default publication is exclusive.
+ln -L -T -- /dev/fd/3 "/dev/fd/8/$final_name" || fail
+published=$final_name
+cleanup_stage
+[[ $(stat -c '%F:%u:%a:%d:%i' -- "$private_dir") == "$root_meta" ]] || fail
+[[ $cancel_requested == false ]] || exit 143
+printf '%s/%s\n' "$private_dir" "$final_name"
+keep_published=true

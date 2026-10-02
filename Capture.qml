@@ -18,6 +18,7 @@ QtObject {
   readonly property string runtimeDir: String(Quickshell.env("XDG_RUNTIME_DIR") || "")
   readonly property string screenshotDir: runtimeDir ? runtimeDir + "/gorelo" : ""
   readonly property string attachmentHelperPath: decodeURIComponent(String(Qt.resolvedUrl("scripts/gorelo-attachment")).replace(/^file:\/\//, ""))
+  readonly property string captureHelperPath: decodeURIComponent(String(Qt.resolvedUrl("scripts/gorelo-capture")).replace(/^file:\/\//, ""))
 
   function validAttachmentName(value) {
     var name = String(value || "")
@@ -111,8 +112,7 @@ QtObject {
     }
   }
   property Process captureProcess: Process {
-    command: ["omarchy", "capture", "screenshot", "region", "save"]
-    environment: ({ "OMARCHY_SCREENSHOT_DIR": root.screenshotDir })
+    command: ["bash", root.captureHelperPath, root.screenshotDir]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.capturePath = String(text || "").trim().split("\n").pop()
@@ -134,6 +134,7 @@ QtObject {
       var current = root.captureRevision === root.draftRevision
       if (name && current && root.updateDraft) root.updateDraft({ attachmentPath: name })
       else if (name) root.deleteAttachment(name)
+      else if (exitCode !== 0 && current && root.reportError) root.reportError("Screenshot capture failed or timed out. Please try again.")
       else if (hint && current && root.reportError) root.reportError("The screenshot tool returned an unsafe attachment path.")
       root.captureRevision = -1
       if (current && root.summon) root.summon()

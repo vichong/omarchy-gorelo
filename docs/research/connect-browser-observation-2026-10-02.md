@@ -6,9 +6,9 @@ An authorised inspection of a test asset in Chromium observed one Connect v2 cli
 
 - Source page origin: `https://app.gorelo.io`, device-detail route with the current asset UUID and hostname.
 - Button: `Connect (v2)`, a button rather than an anchor.
-- Click sends `POST https://gw.aue.gorelo.tech/asset/v1/asset/device/goreloconnect/session`.
+- Click sends a `POST` to an internal regional Connect gateway, separate from the public API. The concrete origin and path are omitted.
 - Request query parameter names: `api-version`, `AppType`. Values, body and headers were not collected.
-- After the request, `window.open` launches `https://connect-aue.gorelo.tech/viewer.html` with query parameter names `session` and `auth`.
+- After the request, `window.open` launches a viewer on a separate regional origin with query parameter names `session` and `auth`. The concrete viewer origin is omitted.
 - A timeline POST follows. This demonstrates a real launch action/side effect, not a static browser deeplink.
 
 No session/auth values were recorded. Treat the resulting viewer URL as credential-bearing and ephemeral; expiry/reusability and exact authentication method were not inspected. This internal gateway is separate from the public API origins. No public-key compatibility is established.

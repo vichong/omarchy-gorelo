@@ -77,6 +77,8 @@ QtObject {
     activeTab = c.activeTab; openAfterCreate = c.openAfterCreate; browserDesktop = c.browserDesktop
     if (browserChanged) browserLauncher.browserWarning = ""
     configLoaded = true
+    // Watched tab changes end the query lifetime even when filters change too.
+    if (tabChanged && !connectionChanged) { leaveSearch(); rebuildRows() }
     if (connectionChanged) {
       supersedeRequests(); apiKey = ""; resetData(); phase = "idle"; clearError()
       if (root.demoMode) {
@@ -92,7 +94,6 @@ QtObject {
       mineIndex = Object.create(null); firstPollDone = false; pollSerial++; pollRequested = true
       if (!polling) poll()
     } else if (tabChanged) {
-      rebuildRows()
       if (connected && activeTab === "all") poll()
     }
   }
@@ -179,6 +180,13 @@ QtObject {
                    defaultStatusId: 0, defaultGroupId: 0, defaultTypeId: 0 })
     }
     if (trimmed) {
+      if (!switching && trimmed !== apiKey) {
+        // Manual replacement may be a different account, even in this region.
+        // Clear before storing: a failed replacement must not revive old data.
+        supersedeRequests(); resetData(); apiKey = ""; phase = "connecting"
+        saveConfig({ technicianId: 0, technicianName: "", statusIds: [],
+                     defaultStatusId: 0, defaultGroupId: 0, defaultTypeId: 0 })
+      }
       phase = "connecting"; clearError()
       if (switching) return true
       return credentials.store(trimmed, nextRegion)
@@ -229,6 +237,12 @@ QtObject {
   property int deviceLoadSerial: 0
   property var deviceHits: []
   property var currentDeviceResults: []
+  property var localDeviceResults: []
+  property int deviceRequestSerial: 0
+  property int deviceListOrder: 0
+  property var deviceHitOrders: Object.create(null)
+  property int currentDeviceOrder: 0
+  property var localDeviceOrders: Object.create(null)
   property bool deviceSearchTruncated: false
   property bool ticketSearchTruncated: false
   property int deviceDisplayLimit: 8
@@ -243,6 +257,9 @@ QtObject {
   property bool searchActive: false
   property bool searching: false
   property var searchResults: []
+  // Active-query local membership survives removal from a filtered queue.
+  property var localSearchTickets: []
+  property bool localSearchFull: false
   property string searchError: ""
   property int searchSerial: 0
   property string searchPendingQuery: ""
@@ -285,15 +302,17 @@ QtObject {
   function clearError() { lastErrorKind = ""; lastError = ""; lastErrorCode = "" }
 
   function resetData() {
-    clearDraft()
+    clearDraft(); actionErrors = Object.create(null); actionError = ""
     statuses = []; types = []; groups = []; users = []; clients = []
     statusNames = Object.create(null); typeNames = Object.create(null); groupNames = Object.create(null)
     clientNames = Object.create(null); userNames = Object.create(null); referenceLoaded = false
     devices = []; devicesLoaded = false; devicesLoading = false; devicesError = ""; devicesTruncated = false
-    deviceLoadSerial++; deviceHits = []; currentDeviceResults = []; deviceSearchTruncated = false
+    deviceRequestSerial = 0; deviceListOrder = 0; deviceHitOrders = Object.create(null)
+    currentDeviceOrder = 0; localDeviceOrders = Object.create(null)
+    deviceLoadSerial++; deviceHits = []; currentDeviceResults = []; localDeviceResults = []; deviceSearchTruncated = false
     ticketSearchTruncated = false; deviceDisplayLimit = 8; deviceMatchCount = 0; deviceSearching = false; deviceSearchError = ""
     mineTickets = []; allTickets = []; searchQuery = ""; searchActive = false; searching = false
-    searchResults = []; searchError = ""; searchSerial++; searchPendingQuery = ""; searchPendingCount = 0
+    searchResults = []; localSearchTickets = []; localSearchFull = false; searchError = ""; searchSerial++; searchPendingQuery = ""; searchPendingCount = 0
     searchRequests = []; mineIndex = Object.create(null); firstPollDone = false
     polling = false; pollRequested = false; mineTruncated = false; allTruncated = false; pollBackoff = 0
     rows.clear(); deviceRows.clear(); rowsRevision++; ticketRevision++
@@ -301,11 +320,14 @@ QtObject {
   function supersedeRequests() {
     var upload = liveBackend.uploadOperation
     if (upload && String(draft.attachmentPath || "") === String(upload.path || "")) updateDraft({ attachmentPath: "" })
+    if (createAttachmentConsumed && String(draft.attachmentPath || "") === createAttachmentPath)
+      updateDraft({ attachmentPath: "" })
     statusCoordinator.reset()
     backend.supersede()
     if (backend === liveBackend) demoBackend.supersede()
     else liveBackend.supersede()
-    polling = false; pollRequested = false; pendingActions = 0; creating = false
+    pendingNotes = Object.create(null); noteRevision++
+    polling = false; pollRequested = false; pendingActions = 0; creating = false; releaseCreateAttachment()
     searching = false; deviceSearching = false; searchPendingQuery = ""; searchPendingCount = 0
     searchRequests = []; devicesLoading = false; generation++
   }
@@ -425,18 +447,27 @@ QtObject {
   }
   function urlFor(ticket) { return Api.ticketUrl(ticketUrlTemplate, ticket) }
   function urlForDevice(device) { return Api.deviceUrl(deviceUrlTemplate, device) }
-  function allDevices() { return Model.mergeDevices(devices, deviceHits) }
+  function deviceSnapshot() {
+    return Model.mergeDeviceSnapshots([
+      { items: localDeviceResults, orders: localDeviceOrders },
+      { items: devices, order: deviceListOrder },
+      { items: deviceHits, orders: deviceHitOrders },
+      { items: currentDeviceResults, order: currentDeviceOrder }
+    ])
+  }
+  function allDevices() { return deviceSnapshot().items }
   function loadDevices() {
     if (!connected || devicesLoading) return false
     var token = generation
     var serial = ++deviceLoadSerial
+    var order = ++deviceRequestSerial
     devicesLoading = true; devicesError = ""
     backend.listDevices(function(result) {
       if (token !== generation || serial !== deviceLoadSerial) return
       devicesLoading = false
       if (!result.ok) { devicesError = result.error; rebuildRows(); return }
       var items = Array.isArray(result.data) ? result.data : []
-      devices = items.slice(0, 2000); devicesLoaded = true
+      devices = items.slice(0, 2000); deviceListOrder = order; devicesLoaded = true
       devicesTruncated = result.truncated === true || items.length > 2000
       devicesError = ""; rebuildRows()
     })
@@ -453,7 +484,8 @@ QtObject {
   }
   function leaveSearch() {
     abortSearchRequests(); searchSerial++; searchActive = false; searching = false
-    deviceSearching = false; searchResults = []; currentDeviceResults = []; deviceSearchTruncated = false
+    deviceSearching = false; searchResults = []; localSearchTickets = []; localSearchFull = false; currentDeviceResults = []; localDeviceResults = []; deviceSearchTruncated = false
+    localDeviceOrders = Object.create(null); currentDeviceOrder = 0
     ticketSearchTruncated = false; deviceDisplayLimit = 8; searchError = ""; deviceSearchError = ""
   }
   function setSearchQuery(text) {
@@ -478,6 +510,11 @@ QtObject {
     var readToken = statusCoordinator.beginRead()
     var token = generation
     var serial = ++searchSerial
+    // Snapshot current local matches before bounded historical hit eviction.
+    var localSnapshot = deviceSnapshot()
+    localDeviceResults = Model.filterDevices(localSnapshot.items, rowContext(), query, 2200)
+    localDeviceOrders = Model.mergeDeviceSnapshots([{ items: localDeviceResults, orders: localSnapshot.orders }]).orders
+    var deviceOrder = ++deviceRequestSerial
     searchActive = true; searching = true; deviceSearching = true
     searchError = ""; deviceSearchError = ""
     searchPendingQuery = query; searchPendingCount = 2; rebuildRows()
@@ -487,7 +524,7 @@ QtObject {
       if (!statusCoordinator.validRead(readToken)) return
       if (!result.ok) { searchError = result.error }
       else {
-        searchError = ""; searchResults = Api.validTicketList(result.data)
+        searchError = ""; searchResults = Api.validTicketList(result.data).slice(0, 50)
         ticketSearchTruncated = !!(result.pagination && result.pagination.HasMore)
       }
       rebuildRows()
@@ -499,7 +536,14 @@ QtObject {
       if (!result.ok) deviceSearchError = result.error
       else {
         currentDeviceResults = Array.isArray(result.data) ? result.data.slice(0, 200) : []
-        deviceHits = Model.updateDeviceHits(deviceHits, currentDeviceResults, 200); deviceSearchError = ""
+        currentDeviceOrder = deviceOrder
+        var hits = Model.mergeDeviceSnapshots([
+          { items: deviceHits, orders: deviceHitOrders },
+          { items: currentDeviceResults, order: deviceOrder }
+        ])
+        deviceHits = Model.updateDeviceHits(hits.items, currentDeviceResults, 200)
+        deviceHitOrders = Model.mergeDeviceSnapshots([{ items: deviceHits, orders: hits.orders }]).orders
+        deviceSearchError = ""
         deviceSearchTruncated = !!(result.pagination && result.pagination.HasMore)
       }
       rebuildRows()
@@ -513,7 +557,13 @@ QtObject {
     var context = rowContext()
     // Keep the active queue's local candidate IDs, but use the freshest copy
     // held by either poll queue or the current server search for each one.
-    var candidates = searchActive ? source.map(function(ticket) { return root.ticketFor(ticket.Id) || ticket }) : source
+    if (searchActive) {
+      var retained = localSearchTickets.map(function(ticket) { return root.ticketFor(ticket.Id) || ticket })
+      var local = source.map(function(ticket) { return root.ticketFor(ticket.Id) || ticket })
+      var snapshot = Model.retainTicketSnapshot(retained, local, context, searchQuery, 1000)
+      localSearchTickets = snapshot.items; localSearchFull = snapshot.full
+    }
+    var candidates = searchActive ? localSearchTickets : source
     var serverMatches = searchActive ? searchResults.map(function(ticket) { return root.ticketFor(ticket.Id) || ticket }) : []
     var filtered = searchActive ? Model.searchTickets(candidates, serverMatches, context, searchQuery) : Model.filterTickets(source, context, searchQuery)
     var list = Model.buildRows(filtered, context, urlFor)
@@ -559,7 +609,7 @@ QtObject {
     var wanted = String(id)
     var found = null
     // Later sources win ties: All → Mine → current search membership.
-    var sources = [allTickets, mineTickets, searchResults]
+    var sources = [localSearchTickets, allTickets, mineTickets, searchResults]
     for (var s = 0; s < sources.length; s++) for (var i = 0; i < sources[s].length; i++) {
       if (String(sources[s][i].Id) === wanted) found = Model.freshestTicket(found, sources[s][i])
     }
@@ -574,6 +624,11 @@ QtObject {
   // The toast's icon slot shows this coloured mark (the ticket glyph stays as
   // the fallback when the image cannot be loaded).
   readonly property string brandImage: Qt.resolvedUrl("assets/gorelo-mark.png").toString()
+  function notificationBody(text) {
+    var escaped = Model.escapeMarkup(text)
+    // The installed helper interprets flag-shaped positional bodies as options.
+    return escaped.charAt(0) === "-" ? " " + escaped : escaped
+  }
   function sendNotification(event) {
     var text = Model.notificationText(event)
     var ticket = event.ticket
@@ -581,18 +636,18 @@ QtObject {
     var args = ["omarchy-notification-send", "--app-name", "Gorelo", "-g", Model.BRAND_ICON, "--image", root.brandImage,
                 "-u", Model.priorityIdOf(ticket) === 1 ? "critical" : "normal",
                 "-r", String(Model.notificationTag(ticket.Id)),
-                Model.escapeMarkup(text.headline), Model.escapeMarkup(text.body)]
+                text.headline, notificationBody(text.body)]
     if (url && !root.demoMode) args = args.concat(["--exec"].concat(openUrlCommand(url)))
     Quickshell.execDetached(args)
   }
   function sendNotificationSummary(summary) {
     Quickshell.execDetached(["omarchy-notification-send", "--app-name", "Gorelo", "-g", Model.BRAND_ICON, "--image", root.brandImage,
                              "-r", String(Model.notificationTag("notification-summary")),
-                             "Gorelo", Model.escapeMarkup(summary)])
+                             "Gorelo", notificationBody(summary)])
   }
   function toast(headline, body) {
     Quickshell.execDetached(["omarchy-notification-send", "--app-name", "Gorelo", "-g", Model.BRAND_ICON, "--image", root.brandImage,
-                             "-t", "4000", Model.escapeMarkup(headline), Model.escapeMarkup(body || "")])
+                             "-t", "4000", String(headline || ""), notificationBody(body || "")])
   }
   function openUrl(url) {
     if (!url) return false
@@ -609,17 +664,26 @@ QtObject {
   }
 
   property string actionError: ""
+  property var actionErrors: Object.create(null)
+  function reportActionError(id, message) {
+    actionErrors[String(id)] = message
+    actionError = Object.keys(actionErrors).map(function(key) { return root.actionErrors[key] }).join("\n")
+  }
+  function clearActionError(id) {
+    delete actionErrors[String(id)]
+    actionError = Object.keys(actionErrors).map(function(key) { return root.actionErrors[key] }).join("\n")
+  }
   property int pendingActions: 0
   readonly property bool actionBusy: pendingActions > 0
   function patchTicket(ticketId, patch, label, callback) {
     if (!connected) { if (callback) callback(false, "Not connected to Gorelo."); return false }
     var token = generation
-    pendingActions++; actionError = ""
+    pendingActions++; clearActionError(ticketId)
     backend.patchTicket(ticketId, patch, function(result) {
       if (token !== generation) return
       pendingActions = Math.max(0, pendingActions - 1)
       if (!result.ok) {
-        actionError = label + " failed: " + result.error
+        reportActionError(ticketId, label + " failed: " + result.error)
         if (callback) callback(false, result.error)
         return
       }
@@ -641,8 +705,8 @@ QtObject {
     },
     changed: function() { root.statusRevision++ },
     apply: function(ticket) { root.applyConfirmedTicket(ticket) },
-    confirm: function(message) { root.actionError = ""; root.toast(message, "") },
-    error: function(message) { root.actionError = message },
+    confirm: function(message) { root.toast(message, "") },
+    error: function(message, id) { root.reportActionError(id, message) },
     refresh: function() { root.refreshAfterMutation() }
   })
   function pendingStatus(id) { return statusCoordinator.pending(id) }
@@ -653,9 +717,14 @@ QtObject {
       return item.LeadAssigneeId === root.effectiveTechnicianId
     })
     mineTickets = Model.statusQueue(mine, filter)
-    if (searchActive) searchResults = searchResults.map(function(item) {
-      return String(item.Id) === String(ticket.Id) ? ticket : item
-    })
+    if (searchActive) {
+      localSearchTickets = localSearchTickets.map(function(item) {
+        return String(item.Id) === String(ticket.Id) ? ticket : item
+      })
+      searchResults = searchResults.map(function(item) {
+        return String(item.Id) === String(ticket.Id) ? ticket : item
+      })
+    }
     mineIndex = Model.indexOf(mineTickets)
     ticketRevision++; rebuildRows()
   }
@@ -665,12 +734,13 @@ QtObject {
     for (var i = 0; i < statuses.length; i++) if (statuses[i].Id === id) status = statuses[i]
     var ticket = ticketFor(ticketId)
     if (!connected || !status || !ticket) {
-      actionError = !connected ? "Not connected to Gorelo." : "Invalid ticket or status."
-      if (callback) callback(false, actionError)
+      var problem = !connected ? "Not connected to Gorelo." : "Invalid ticket or status."
+      reportActionError(ticketId, problem)
+      if (callback) callback(false, problem)
       return false
     }
     if (ticket.Status && ticket.Status.Id === id) return false
-    actionError = ""
+    clearActionError(ticketId)
     return statusCoordinator.setStatus(ticket, status, effectiveTechnicianName, callback)
   }
   function assignToMe(ticketId, callback) {
@@ -679,21 +749,28 @@ QtObject {
                                    UpdatedByName: effectiveTechnicianName || undefined },
                        "Assignment", callback)
   }
+  property var pendingNotes: Object.create(null)
+  property int noteRevision: 0
+  function pendingNote(id) { return pendingNotes[String(id)] === true }
   function addPrivateNote(ticketId, text, callback) {
     var note = String(text || "").trim()
+    var id = String(ticketId)
+    if (pendingNote(id)) return false
     if (!note || !connected) {
       if (callback) callback(false, !note ? "A note is required." : "Not connected to Gorelo.")
       return false
     }
-    pendingActions++; actionError = ""
+    pendingNotes[id] = true; noteRevision++
+    pendingActions++; clearActionError(ticketId)
     var payload = { ConversationTypeId: Api.CONVERSATION_PRIVATE, Body: Api.escapeHtml(note) }
     if (effectiveTechnicianName) payload.CreatedByName = effectiveTechnicianName
     var token = generation
     backend.addComment(ticketId, payload, function(result) {
       if (token !== generation) return
+      delete pendingNotes[id]; noteRevision++
       pendingActions = Math.max(0, pendingActions - 1)
       if (!result.ok) {
-        actionError = "Note failed: " + result.error
+        reportActionError(ticketId, "Note failed: " + result.error)
         if (callback) callback(false, result.error)
         return
       }
@@ -704,8 +781,10 @@ QtObject {
   }
 
   property var draft: Model.emptyDraft()
-  signal created(string id, string warning)
+  signal created(string id, string warning, bool clearedDraft)
   property bool creating: false
+  property string createAttachmentPath: ""
+  property bool createAttachmentConsumed: false
   property string createError: ""
   property string lastCreatedId: ""
   property int draftRevision: 0
@@ -719,12 +798,12 @@ QtObject {
     for (var name in patch) next[name] = patch[name]
     draft = next
     var newAttachment = String(next.attachmentPath || "")
-    if (oldAttachment && oldAttachment !== newAttachment) deleteAttachment(oldAttachment)
+    if (oldAttachment && oldAttachment !== newAttachment && oldAttachment !== createAttachmentPath) deleteAttachment(oldAttachment)
   }
   function clearDraft() {
     var attachment = String(draft.attachmentPath || "")
     draft = Model.emptyDraft(); draftRevision++; createError = ""
-    if (attachment) deleteAttachment(attachment)
+    if (attachment && attachment !== createAttachmentPath) deleteAttachment(attachment)
   }
   function createTicket() {
     if (creating) return false
@@ -741,35 +820,54 @@ QtObject {
     if (effectiveTechnicianId) body.LeadAssigneeId = effectiveTechnicianId
     if (effectiveTechnicianName) body.CreatedByName = effectiveTechnicianName
     creating = true; createError = ""
+    var token = generation
+    var submittedDraft = draft
     var attachment = String(draft.attachmentPath || "")
+    createAttachmentPath = attachment; createAttachmentConsumed = false
     backend.createTicket(body, function(result) {
-      if (!result.ok) { creating = false; createError = result.error; return }
+      if (token !== generation) return
+      if (!result.ok) { creating = false; releaseCreateAttachment(); createError = result.error; return }
       var id = result.data && result.data.Id ? String(result.data.Id) : ""
       lastCreatedId = id
-      if (!attachment || !id) { finishCreate(id, ""); return }
+      if (!attachment || !id) { finishCreate(id, "", submittedDraft); return }
       backend.uploadAttachment(id, attachment, function(upload) {
+        if (token !== generation) return
         if (!upload.ok) {
-          finishCreate(id, "Ticket created, but the screenshot upload failed: " + upload.error)
+          finishCreate(id, "Ticket created, but the screenshot upload failed: " + upload.error, submittedDraft)
           return
         }
-        if (backend === demoBackend) { finishCreate(id, ""); return }
+        // Upload completion has consumed its file, even while the comment is pending.
+        // Keep this bookkeeping separate from draft identity until completion/supersede.
+        createAttachmentConsumed = true
+        if (backend === demoBackend) { finishCreate(id, "", submittedDraft); return }
         var payload = { ConversationTypeId: Api.CONVERSATION_PRIVATE, Body: "Screenshot",
                         Attachments: [{ Name: upload.data.Name, Url: upload.data.Url }] }
         if (effectiveTechnicianName) payload.CreatedByName = effectiveTechnicianName
         backend.addComment(id, payload, function(comment) {
-          finishCreate(id, comment.ok ? "" : "Ticket created, but attaching the screenshot failed: " + comment.error)
+          if (token !== generation) return
+          finishCreate(id, comment.ok ? "" : "Ticket created, but attaching the screenshot failed: " + comment.error, submittedDraft)
         })
       })
     })
     return true
   }
-  function finishCreate(id, warning) {
-    creating = false; clearDraft()
+  function releaseCreateAttachment() {
+    var attachment = createAttachmentPath
+    createAttachmentPath = ""; createAttachmentConsumed = false
+    if (attachment && attachment !== String(draft.attachmentPath || "")) deleteAttachment(attachment)
+  }
+  function finishCreate(id, warning, submittedDraft) {
+    var unchanged = draft === submittedDraft
+    creating = false
+    if (unchanged) clearDraft()
+    else if (createAttachmentPath && String(draft.attachmentPath || "") === createAttachmentPath)
+      updateDraft({ attachmentPath: "" }) // This file belongs to the completed submission, not newer draft work.
+    releaseCreateAttachment()
     if (warning) createError = warning
     toast("Ticket created", warning || "")
     if (openAfterCreate && id) openUrl(urlFor({ Id: id }))
     refreshAfterMutation()
-    created(id, warning)
+    created(id, warning, unchanged)
   }
   function deleteAttachment(path) { capture.deleteAttachment(path) }
   function captureScreenshot() { return capture.captureScreenshot() }

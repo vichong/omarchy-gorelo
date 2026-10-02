@@ -85,7 +85,7 @@ QtObject {
     if (!entry) return
     root.requestOperation = entry
     root.requestOutput = ""
-    requestProcess.command = ["curl", "-sS", "--proto", "=https", "--max-filesize",
+    requestProcess.command = ["curl", "-q", "-sS", "--proto", "=https", "--max-filesize",
                               String(Api.MAX_RESPONSE_BYTES), "--max-time",
                               String(Math.max(1, Math.ceil(root.requestTimeoutMs / 1000))),
                               "-K", "-", "-w", "\n%{http_code}", entry.url]

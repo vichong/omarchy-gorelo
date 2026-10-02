@@ -589,6 +589,17 @@ Panel {
           font.pixelSize: Style.font.caption
         }
 
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          visible: root.connected && root.serviceReady && root.gorelo.searchActive && root.gorelo.localSearchFull
+          text: "The retained search snapshot is full (1,000 local tickets). New local matches are not added; clear and search again to refill it."
+          wrapMode: Text.WordWrap
+          color: root.dim
+          font.family: root.family
+          font.pixelSize: Style.font.caption
+        }
+
         // ---------- empty queue ----------
         Text {
           textFormat: Text.PlainText

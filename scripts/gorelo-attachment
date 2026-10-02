@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep metadata type names stable without changing the upload child's locale.
+stat() {
+  LC_ALL=C command stat "$@"
+}
+export -n -f stat
+
 # Hard ceiling for screenshot attachments: 20 MiB.
 readonly MAX_ATTACHMENT_BYTES=$((20 * 1024 * 1024))
 
@@ -84,7 +90,7 @@ terminate_curl() {
 trap terminate_curl TERM INT
 
 set +e
-curl -sS --proto '=https' --max-filesize "$max_response_bytes" \
+curl -q -sS --proto '=https' --max-filesize "$max_response_bytes" \
   --max-time "$max_time" -K - \
   -F "file=@/dev/fd/3;filename=$name;type=image/png" \
   --form-string 'itemType=Ticket' --form-string "itemId=$item_id" \

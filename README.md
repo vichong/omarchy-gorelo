@@ -65,8 +65,8 @@ Requirements:
 - Omarchy 4 (`schemaVersion: 1` plugin API)
 - `secret-tool` (libsecret) with a running keyring daemon
 - `curl` for all Gorelo API requests (run without redirect following, HTTPS
-  only), plus `bash` and coreutils for the two small helpers in `scripts/`;
-  `gio` (glib) only if you pick a specific browser in Settings
+  only), plus `bash`, GNU coreutils and Linux `/proc` for the three helpers in
+  `scripts/`; `gio` (glib) only if you pick a specific browser in Settings
 - A Gorelo API key from **Settings → Integrations → API keys**, with
   read/write on tickets and read on clients, organization and assets
 
@@ -101,6 +101,12 @@ API key.
 Optionally adjust which statuses count as "open" (by default anything whose
 name doesn't look closed, resolved or cancelled), the poll interval, and the
 notification threshold.
+
+Entering a different API key starts a new account context, even when rotating
+a key within the same organisation. This clears cached tickets/devices, unsent
+drafts and their screenshots, your technician selection, status filters and
+new-ticket defaults. Select yourself and the defaults again after connecting.
+General preferences remain unchanged; ordinary reconnects do not reset them.
 
 ## Configuration
 
@@ -174,6 +180,12 @@ file. The plugin never touches any other configuration.
   client and serial matches are local-cache conveniences, not server guarantees.
 - Each queue fetch is capped at five 100-ticket pages. When more are
   available, the panel says it is showing the first 500.
+- An active ticket search retains up to 1,000 local matches, plus the current
+  server response of up to 50 tickets. At capacity, existing matches continue
+  updating but new local matches are not added or silently substituted. A
+  visible warning asks you to clear the search and search again. This bounds
+  long-lived searches without losing a retained ticket merely because it was
+  closed and left the queue.
 - Comments posted through the API are recorded as API-authored, with your
   name attached. The plugin only ever posts *private* notes.
 - Time-entry APIs are available, but the plugin does not yet provide a timer
@@ -204,6 +216,9 @@ file. The plugin never touches any other configuration.
 Research, sources and the approved verification gates are recorded in
 [`docs/research/gorelo-updates-2026-10-02.md`](docs/research/gorelo-updates-2026-10-02.md)
 and [`docs/plans/gorelo-connect-v2.md`](docs/plans/gorelo-connect-v2.md).
+The [full-codebase due-diligence report](docs/research/v0.2.0-due-diligence.md)
+records the v0.2.1 follow-up fixes, review coverage, executed checks and
+remaining risks; it is not a safety certification.
 
 ## Security
 
@@ -213,15 +228,29 @@ and [`docs/plans/gorelo-connect-v2.md`](docs/plans/gorelo-connect-v2.md).
   on stdin.
 - Because the key is held in the shell's memory, it would be present in a
   core dump of the shell process.
-- API requests use `curl` without redirect following, restrict transfers to
-  HTTPS, and supply the key only through curl's stdin config. Any 3xx response
+- API requests and uploads start `curl` with `-q` to ignore ambient curl
+  config files (such as `.curlrc`); curl environment variables still apply.
+  They do not follow redirects, restrict
+  transfers to HTTPS, and supply the key only through curl's stdin config. Any 3xx response
   is rejected, so the key is never forwarded beyond the exact configured
   Gorelo API origin.
 - Everything the API returns is rendered as plain text.
 - Screenshots are capped at 20 MiB and handled only as verified, owned regular
   files under the private `$XDG_RUNTIME_DIR/gorelo` directory (mode `0700`).
-  Upload and cleanup stay bound to the verified inode and never follow a
-  replacement pathname.
+  Each capture uses private staging and a long random final filename published
+  without overwriting an existing file, rather than reusing timestamped names.
+  Uploads read the verified inode. Cleanup opens the file at its unique name
+  when deletion starts and checks file identity immediately before removal;
+  it does not remember the inode from an earlier queued request or eliminate
+  a malicious same-user race between the final check and removal.
+- Capture runs in a dedicated process group with a roughly 290-second deadline
+  and one-second termination grace; stdout and stderr collection are each
+  capped at 8 KiB. Descendants that escape the group are not covered. Forced
+  `SIGKILL` or an early interruption may leave private staging artifacts or
+  orphan processes; unsafe artifacts are not recursively deleted.
+- Capture startup can fail closed under heavy load, and forced termination
+  cannot guarantee completion of the screenshot tool's cursor-restoration
+  cleanup. These process limits are not a sandbox or a safety guarantee.
 - `config.json` in `~/.config/omarchy/gorelo/` holds non-secret settings only.
 
 ## Development
@@ -233,6 +262,19 @@ ln -sfn "$PWD" ~/.config/omarchy/plugins/io.github.vichong.gorelo
 omarchy restart shell
 omarchy plugin enable io.github.vichong.gorelo right
 ```
+
+Before switching checkouts or restarting, save/discard unsent drafts and wait
+for captures, uploads and ticket actions to finish. A restart resets in-memory
+plugin state and briefly interrupts the bar and shell overlays.
+
+On the tested Omarchy/Quickshell 0.3.1 installation, switching a symlink while
+keeping the same QML URL could retain the old component even after
+`omarchy-shell shell rescanPlugins`: the shell's conditional
+`Qt.clearComponentCache` call was unavailable. For that workflow, use the shell
+restart above and retest the changed behavior. A correct symlink, matching disk
+hashes or a connected status line alone does not prove new QML is running.
+This is a reproduced dependency-version-specific limitation, not a claim that
+every plugin edit requires a shell restart.
 
 `Service.qml` composes interchangeable `LiveBackend.qml` and `DemoBackend.qml`
 implementations, plus `Capture.qml`, `BrowserLauncher.qml`, and

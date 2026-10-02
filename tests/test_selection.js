@@ -33,4 +33,14 @@ c.tabFromCursor(-1)
 equal([actionDirection,moreFocus],[-1,1],"expanded-row Tab conventions remain first priority")
 c.showMoreButton.visible=false;c.currentRow=()=>null;c.tabFromCursor(-1)
 equal(switched,-1,"panel switching remains fallback without expanded actions or Show more")
+// Execute the actual distinct snapshot-warning visibility binding.
+const capacityBlock=text.match(/visible: (root.connected && root.serviceReady && root.gorelo.searchActive && root.gorelo.localSearchFull)\n          text: "([^"]+)"/)
+c.connected=true;c.gorelo.searchActive=true;c.gorelo.localSearchFull=false
+function snapshotWarningVisible(){return vm.runInContext(capacityBlock[1],c)}
+equal(snapshotWarningVisible(),false,"snapshot warning stays hidden before local capacity is reached")
+c.gorelo.localSearchFull=true
+equal(snapshotWarningVisible(),true,"full snapshot exposes an independent visible warning")
+equal(capacityBlock[2],"The retained search snapshot is full (1,000 local tickets). New local matches are not added; clear and search again to refill it.","capacity warning accurately explains local retention bound and recovery, not API truncation")
+c.gorelo.searchActive=false
+equal(snapshotWarningVisible(),false,"clearing search hides retained-snapshot warning")
 done("test_selection")

@@ -33,7 +33,8 @@ if (process.env.CURL_HANG) process.on('SIGTERM', () => {
   fs.writeFileSync(process.env.CURL_RECORD + '.terminated', 'SIGTERM')
   process.exit(143)
 })
-fs.writeFileSync(process.env.CURL_RECORD, JSON.stringify({ args, stdin, file, fileSize }))
+fs.writeFileSync(process.env.CURL_RECORD, JSON.stringify({ args, stdin, file, fileSize,
+  locale: { LANG: process.env.LANG, LANGUAGE: process.env.LANGUAGE, LC_ALL: process.env.LC_ALL } }))
 process.stdout.write('{"Name":"shot.png","Url":"test-only"}\\n200')
 if (process.env.CURL_HANG) setInterval(() => {}, 1000)
 else process.exit(Number(process.env.CURL_EXIT || 0))
@@ -62,11 +63,48 @@ function test(name, fn) {
 
 async function main() {
   try {
+    test("upload and delete work under localized metadata without changing child locale", () => {
+      fs.writeFileSync(path.join(bin, "stat"), `#!/usr/bin/bash
+output=$(LC_ALL=C /usr/bin/stat "$@") || exit "$?"
+if [[ \${LANGUAGE:-} == de && \${LC_ALL:-} != C ]]; then
+ output=\${output//regular empty file/leere reguläre Datei}
+ output=\${output//regular file/reguläre Datei}
+ output=\${output//symbolic link/symbolische Verknüpfung}
+ output=\${output//directory/Verzeichnis}
+ output=\${output//fifo/FIFO}
+fi
+printf '%s\\n' "$output"
+`, { mode: 0o700 })
+      const locale = { LANG: "en_US.utf8", LANGUAGE: "de", LC_ALL: "en_US.utf8" }
+      try {
+        const operations = ["upload", "delete"].map(mode => {
+          const f = fixture()
+          return { mode, f, result: run(f, { mode, env: locale }) }
+        })
+        assert.deepEqual(operations.map(({ mode, result }) => ({ mode, status: result.status })),
+          [{ mode: "upload", status: 0 }, { mode: "delete", status: 0 }], "localized private attachment operations succeed")
+        for (const { mode, f, result } of operations) {
+          assert(!fs.existsSync(f.file), mode + " still cleans the bound attachment")
+          if (mode === "delete") assert(!fs.existsSync(f.record), "localized deletion never calls curl")
+          else {
+            const sent = JSON.parse(fs.readFileSync(f.record, "utf8"))
+            assert.equal(sent.args[0], "-q", "locale isolation retains first-argument curl config isolation")
+            assert.equal(sent.stdin, config)
+            assert(!sent.args.join(" ").includes(key))
+            assert.equal(sent.file, "private screenshot")
+            assert.deepEqual(sent.locale, locale, "stat locale isolation is not exported to curl")
+            assert.equal(result.stdout, '{"Name":"shot.png","Url":"test-only"}\n200')
+          }
+        }
+      } finally { fs.unlinkSync(path.join(bin, "stat")) }
+    })
+    if (process.argv.includes("--locale-only")) return
     test("uploads a UUID-bound Ticket with literal metadata and stdin-only credentials", () => {
       const f = fixture()
       const result = run(f)
       assert.equal(result.status, 0, result.stderr)
       const sent = JSON.parse(fs.readFileSync(f.record, "utf8"))
+      assert.equal(sent.args[0], "-q", "upload disables ambient curl config before all other arguments")
       assert.equal(sent.args.at(-1), url)
       assert.deepEqual(sent.args.filter((_, i) => sent.args[i - 1] === "--form-string"),
         ["itemType=Ticket", `itemId=${uuid}`])

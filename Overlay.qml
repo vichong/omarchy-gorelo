@@ -84,8 +84,8 @@ Item {
 
   Connections {
     target: root.service
-    function onCreated(id, warning) {
-      if (!warning) root.dismiss()
+    function onCreated(id, warning, clearedDraft) {
+      if (!warning && clearedDraft) root.dismiss()
     }
   }
 

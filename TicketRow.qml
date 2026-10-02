@@ -28,6 +28,11 @@ ListRow {
 
   signal navigationFocusRequested()
   property bool showAssignee: false
+  readonly property bool notePending: {
+    if (!gorelo) return false
+    gorelo.noteRevision
+    return gorelo.pendingNote(ticketId)
+  }
   readonly property string pendingText: {
     if (!gorelo) return ""
     gorelo.statusRevision
@@ -215,12 +220,14 @@ ListRow {
           text: "Add note"
           foreground: row.fg
           fontFamily: row.family
-          opacity: noteField.text.trim().length > 0 ? 1.0 : 0.45
+          enabled: !row.notePending
+          opacity: enabled && noteField.text.trim().length > 0 ? 1.0 : 0.45
           onClicked: {
             if (!row.gorelo || !noteField.text.trim()) return
             var field = noteField
-            row.gorelo.addPrivateNote(row.ticketId, noteField.text, function(ok) {
-              if (ok && field) field.text = ""
+            var submitted = noteField.text
+            row.gorelo.addPrivateNote(row.ticketId, submitted, function(ok) {
+              if (ok && field && field.text === submitted) field.text = ""
             })
           }
         }

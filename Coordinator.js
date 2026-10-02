@@ -20,12 +20,12 @@ function create(io) {
       completed = true; epoch++; delete pending[id]
       if (!result.ok || !result.data || String(result.data.Id) !== id || !result.data.Status || !Number.isInteger(result.data.Status.Id)) {
         unresolved[id] = operation
-        io.error("The status change could not be confirmed. Open in Gorelo to check; selecting again checks the status before any retry.")
+        io.error("The status change could not be confirmed. Open in Gorelo to check; selecting again checks the status before any retry.", id)
       } else {
         delete unresolved[id]
         io.apply(result.data)
         if (result.data.Status.Id === operation.status.Id) confirm(operation.ticket, operation.status)
-        else io.error("Gorelo currently reports " + result.data.Status.Name + ". Check in Gorelo before retrying.")
+        else io.error("Gorelo currently reports " + result.data.Status.Name + ". Check in Gorelo before retrying.", id)
       }
       io.changed()
       if (operation.callback) {
@@ -37,8 +37,8 @@ function create(io) {
     })
   }
   function setStatus(ticket, status, technician, callback) {
-    if (status.AskForReason === true) { io.error("This status requires a reason, which the public API cannot send. Open in Gorelo to complete the change."); return false }
     var id = String(ticket.Id)
+    if (status.AskForReason === true) { io.error("This status requires a reason, which the public API cannot send. Open in Gorelo to complete the change.", id); return false }
     if (pending[id]) return false
     if (unresolved[id]) { reconcile(id, unresolved[id]); return false }
     var token = generation
@@ -55,7 +55,7 @@ function create(io) {
       epoch++
       delete pending[id]
       if (!result.ok) {
-        io.error("Status change failed: " + result.error + " Open in Gorelo to check or retry.")
+        io.error("Status change failed: " + result.error + " Open in Gorelo to check or retry.", id)
         io.changed()
         if (callback) callback(false, result.error)
         if (io.refresh) io.refresh()
